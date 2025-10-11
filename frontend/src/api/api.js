@@ -219,3 +219,20 @@ export const fetchCurrentUser = async () => {
         return null;
     }
 }
+
+/**
+ * Helper function to get the current authenticated user's username.
+ * Returns the username if authenticated, null otherwise.
+ */
+export const getCurrentUser = async () => {
+    try {
+        const userData = await fetchCurrentUser();
+        if (userData && userData.username) {
+            return userData.username;
+        }
+        return null;
+    } catch (error) {
+        console.error('Error in getCurrentUser:', error);
+        return null;
+    }
+}

@@ -27,13 +27,30 @@ class SessionDebugView(APIView):
             request.session.create()
             request.session.save()
         
-        # Return session info
+        # Get session data for debugging
+        session_data = {}
+        for key in request.session.keys():
+            # Don't include sensitive data like passwords
+            if key not in ['password']:
+                session_data[key] = request.session[key]
+        
+        # Check if _auth_user_id is in session which indicates Django auth
+        auth_user_id = None
+        if '_auth_user_id' in request.session:
+            auth_user_id = request.session['_auth_user_id']
+        
+        # Return detailed session info
         return JsonResponse({
             'session_key': request.session.session_key,
-            'user_authenticated': request.user.is_authenticated,
+            'is_authenticated': request.user.is_authenticated,
+            'username': request.user.username if request.user.is_authenticated else None,
             'user_id': request.user.id if request.user.is_authenticated else None,
+            'auth_user_id_in_session': auth_user_id,
             'csrf_token': request.META.get('CSRF_COOKIE', None),
             'session_keys': list(request.session.keys()),
+            'session_data': session_data,
+            'cookies': {k: request.COOKIES[k] for k in request.COOKIES 
+                       if k not in ['password', 'csrftoken']}
         })
 
 

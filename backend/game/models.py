@@ -28,9 +28,46 @@ class Game(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     score = models.IntegerField()
     mode = models.CharField(max_length=10, choices=MODE_CHOICES)
-    ai_model = models.ForeignKey(AIModel, on_delete=models.SET_NULL, null=True,blank=True)
+    ai_model = models.ForeignKey(AIModel, on_delete=models.SET_NULL, null=True, blank=True)
     replay_json = models.JSONField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.user.username}-{self.score}"
+
+
+# NEW MODEL: Store active game state for persistence
+class GameState(models.Model):
+    """
+    Stores the current/active game state for each user.
+    This allows game state to persist across WebSocket disconnections,
+    logout/login cycles, and server restarts.
+    """
+    user = models.OneToOneField(
+        User, 
+        on_delete=models.CASCADE, 
+        related_name='game_state',
+        help_text="The user who owns this game state"
+    )
+    board_state = models.TextField(
+        help_text="JSON-serialized 4x4 board array"
+    )
+    score = models.IntegerField(
+        default=0,
+        help_text="Current game score"
+    )
+    is_over = models.BooleanField(
+        default=False,
+        help_text="Whether the game is over"
+    )
+    last_updated = models.DateTimeField(
+        auto_now=True,
+        help_text="When this game state was last modified"
+    )
+    
+    class Meta:
+        verbose_name = "Game State"
+        verbose_name_plural = "Game States"
+    
+    def __str__(self):
+        return f"{self.user.username} - Score: {self.score} ({'Game Over' if self.is_over else 'In Progress'})"

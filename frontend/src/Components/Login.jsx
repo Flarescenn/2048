@@ -1,9 +1,6 @@
-// In frontend/src/Components/Login.jsx
-
 import { useState } from 'react'
-import { loginUser } from '../api/api'
+import { loginUser, fetchCurrentUser } from '../api/api'
 
-// CRITICAL FIX: Define the key used by App.jsx to clear local storage.
 const GAME_STATE_STORAGE_KEY = 'gameBoardState'; 
 
 export default function Login({ onSuccess }){
@@ -11,28 +8,62 @@ export default function Login({ onSuccess }){
     const [password, setPassword] = useState('')
     const [loading, setLoading] = useState(false)
 
-    const handleSubmit = async (e) =>{
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if(!username || !password) return alert('Enter username and password')
+        
         setLoading(true)
-        const res = await loginUser(username, password)
-        setLoading(false)
-        if(res.success){
-            // This line is now defined and won't throw the error:
-            localStorage.removeItem(GAME_STATE_STORAGE_KEY); 
+        try {
+            const res = await loginUser(username, password)
             
-            if(onSuccess) onSuccess();
-        } else {
-            alert(res.error || 'Login failed')
+            if(res.success){
+                localStorage.removeItem(GAME_STATE_STORAGE_KEY); 
+                
+                // CRITICAL FIX: Fetch the user data after successful login
+                const userData = await fetchCurrentUser();
+                console.log("Login successful, user data:", userData);
+                
+                if(onSuccess && userData) {
+                    // Pass the actual user data to the parent
+                    onSuccess(userData);
+                } else if(onSuccess) {
+                    // Fallback: pass username if fetchCurrentUser fails
+                    onSuccess({ username });
+                }
+            } else {
+                alert(res.error || 'Login failed')
+            }
+        } catch (error) {
+            console.error("Login error:", error);
+            alert('Login failed: ' + (error.message || 'Unknown error'));
+        } finally {
+            setLoading(false)
         }
     }
 
     return (
         <form onSubmit={handleSubmit} className="flex flex-col gap-2 p-4 max-w-sm">
             <h2 className="text-xl font-bold">Login</h2>
-            <input value={username} onChange={e => setUsername(e.target.value)} placeholder="username" className="p-2 border rounded" />
-            <input value={password} onChange={e => setPassword(e.target.value)} type="password" placeholder="password" className="p-2 border rounded" />
-            <button type="submit" disabled={loading} className="bg-blue-600 text-white p-2 rounded">{loading ? 'Logging in...' : 'Login'}</button>
+            <input 
+                value={username} 
+                onChange={e => setUsername(e.target.value)} 
+                placeholder="username" 
+                className="p-2 border rounded" 
+            />
+            <input 
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+                type="password" 
+                placeholder="password" 
+                className="p-2 border rounded" 
+            />
+            <button 
+                type="submit" 
+                disabled={loading} 
+                className="bg-blue-600 text-white p-2 rounded hover:bg-blue-700 disabled:bg-gray-400"
+            >
+                {loading ? 'Logging in...' : 'Login'}
+            </button>
         </form>
     )
 }

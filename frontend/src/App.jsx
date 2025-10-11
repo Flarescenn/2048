@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import GameBoard from "./Components/GameBoard.jsx";
 import AIList from "./Components/AIList.jsx";
 import Leaderboard from "./Components/Leaderboard.jsx";
@@ -6,7 +6,6 @@ import Login from "./Components/Login.jsx";
 import Register from "./Components/Register.jsx";
 import { logoutUser, fetchCurrentUser } from './api/api.js' 
 
-// Define the localStorage key used for the game state
 const GAME_STATE_STORAGE_KEY = 'gameBoardState';
 
 export default function App() {
@@ -14,50 +13,137 @@ export default function App() {
     const [showRegister, setShowRegister] = useState(false);
     const [currentUser, setCurrentUser] = useState(null); 
     const [loading, setLoading] = useState(true); 
-    // NEW STATE: To track the current game score
     const [currentGameScore, setCurrentGameScore] = useState(0); 
+
+    // Use refs to track state for the auth event dispatcher
+    const authStateRef = useRef({ authenticated: false, username: null });
 
     const GAME_ENDPOINT_ID = "game_instance"; 
 
-    // CRITICAL FIX: Check authentication status when the app loads
+    // Auth check effect - ONLY runs once on mount
     useEffect(() => {
+        console.log("App.jsx: Setting up authentication monitoring (should see this ONCE)");
+        
+        const dispatchAuthEvent = (isAuthenticated, userData) => {
+            const authEvent = new CustomEvent('auth-state-change', {
+                detail: {
+                    authenticated: isAuthenticated,
+                    user: userData
+                }
+            });
+            console.log(`Dispatching auth event: authenticated=${isAuthenticated}, user=${userData?.username || 'none'}`);
+            window.dispatchEvent(authEvent);
+        };
+
         const checkAuth = async () => {
             try {
                 const user = await fetchCurrentUser(); 
+                
+                // Use refs to check if state actually changed
+                const wasAuthenticated = authStateRef.current.authenticated;
+                const prevUsername = authStateRef.current.username;
+
                 if (user && user.username) {
+                    console.log("User authenticated:", user.username);
                     setAuthenticated(true);
-                    setCurrentUser(user); 
+                    setCurrentUser(user);
+                    
+                    // Update ref
+                    authStateRef.current = { authenticated: true, username: user.username };
+                    
+                    // Dispatch event only if auth state changed
+                    if (!wasAuthenticated || prevUsername !== user.username) {
+                        dispatchAuthEvent(true, user);
+                    }
                 } else {
+                    console.log("No authenticated user found");
                     setAuthenticated(false);
                     setCurrentUser(null);
+                    
+                    // Update ref
+                    authStateRef.current = { authenticated: false, username: null };
+                    
+                    // Dispatch event only if auth state changed
+                    if (wasAuthenticated) {
+                        dispatchAuthEvent(false, null);
+                    }
                 }
             } catch (error) {
                 console.error("Authentication check failed:", error);
                 setAuthenticated(false);
                 setCurrentUser(null);
+                authStateRef.current = { authenticated: false, username: null };
+                
+                // Dispatch event on error only if previously authenticated
+                if (authStateRef.current.authenticated) {
+                    dispatchAuthEvent(false, null);
+                }
             } finally {
                 setLoading(false);
             }
         };
+        
+        // Initial authentication check
         checkAuth();
-    }, []); 
-
+        
+        // Set up periodic authentication check every 30 seconds (not 3!)
+        const authCheckInterval = setInterval(checkAuth, 30000);
+        
+        // Clean up interval on component unmount
+        return () => {
+            console.log("App.jsx: Cleaning up auth monitoring");
+            clearInterval(authCheckInterval);
+        };
+    }, []); // ✅ EMPTY DEPENDENCY ARRAY - only run once!
 
     // Handlers for successful auth: set authenticated state and store user data
     const handleAuthSuccess = (userData) => {
+        console.log("Auth success handler called with:", userData);
         setAuthenticated(true);
         setCurrentUser(userData);
+        authStateRef.current = { authenticated: true, username: userData.username };
     };
 
     const handleLogout = async () => {
-        await logoutUser();
-        localStorage.removeItem(GAME_STATE_STORAGE_KEY);
-        setAuthenticated(false);
-        setCurrentUser(null);
-        setCurrentGameScore(0); // Reset score on logout
+        try {
+            console.log("Logging out user...");
+            await logoutUser();
+            console.log("Logout successful, clearing user state");
+            
+            // Update local state
+            setAuthenticated(false);
+            setCurrentUser(null);
+            setCurrentGameScore(0);
+            authStateRef.current = { authenticated: false, username: null };
+            
+            // Dispatch logout event
+            const authEvent = new CustomEvent('auth-state-change', {
+                detail: { authenticated: false, user: null }
+            });
+            window.dispatchEvent(authEvent);
+            
+            // Force an immediate auth check after logout
+            setTimeout(async () => {
+                try {
+                    console.log("Post-logout authentication check");
+                    const user = await fetchCurrentUser();
+                    if (user && user.username) {
+                        console.warn("User still authenticated after logout!");
+                        setAuthenticated(true);
+                        setCurrentUser(user);
+                        authStateRef.current = { authenticated: true, username: user.username };
+                    } else {
+                        console.log("User confirmed logged out");
+                    }
+                } catch (error) {
+                    console.error("Post-logout auth check failed:", error);
+                }
+            }, 500);
+        } catch (error) {
+            console.error("Logout failed:", error);
+        }
     }
     
-    // NEW HANDLER: This function is passed to GameBoard to receive score updates
     const handleScoreUpdate = (newScore) => {
         setCurrentGameScore(newScore);
     };
@@ -65,7 +151,6 @@ export default function App() {
     if (loading) {
         return <div className="p-10 text-center text-xl">Loading application...</div>;
     }
-
 
     return (
         <div className="p-4 bg-gray-50 min-h-screen">
@@ -104,7 +189,6 @@ export default function App() {
                                 <h1 className="text-xl font-extrabold text-gray-800 flex items-center gap-4">
                                     <span>Welcome, <span className="text-blue-600">{currentUser?.username || 'Player'}</span>!</span>
                                     
-                                    {/* SCORE DISPLAY: Show the current game score */}
                                     <span className="text-sm px-4 py-2 bg-yellow-500 text-white rounded-xl shadow-md font-extrabold">
                                         CURRENT SCORE: {currentGameScore}
                                     </span>
@@ -119,10 +203,9 @@ export default function App() {
                             
                             <div className="flex flex-col lg:flex-row gap-6">
                                 <div className="lg:w-2/3">
-                                    {/* PASS THE HANDLER: GameBoard calls this function to update the score */}
                                     <GameBoard 
                                         gameId={GAME_ENDPOINT_ID} 
-                                        onScoreUpdate={handleScoreUpdate} // <-- NEW PROP
+                                        onScoreUpdate={handleScoreUpdate}
                                     /> 
                                 </div>
                                 <div className="lg:w-1/3">

@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-// Import the correct functions from API
-import { fetchAIModels, ensureSession } from "../api/api.js"; 
+import { fetchAIModels, ensureSession, getCurrentUser } from "../api/api.js";
 
 const getTileColor = (value) => {
     switch (value) {
@@ -19,8 +18,7 @@ const getTileColor = (value) => {
     }
 }
 
-// Accept onScoreUpdate prop from App.jsx
-export default function GameBoard({ onScoreUpdate }){ 
+export default function GameBoard({ onScoreUpdate }) {
     const [board, setBoard] = useState(Array(4).fill(null).map(() => Array(4).fill(0)))
     const [score, setScore] = useState(0)
     const [over, setOver] = useState(false)
@@ -29,8 +27,14 @@ export default function GameBoard({ onScoreUpdate }){
     const [models, setModels] = useState([]);
     const [username, setUsername] = useState(null);
     
-    // 🎯 FIX 1: Ref to hold the current game state/status for the event listener
-    const gameStateRef = useRef({ wsOpen: false, over: false }); 
+    const gameStateRef = useRef({ wsOpen: false, over: false });
+    const reconnectFnRef = useRef(null);
+    const usernameRef = useRef(null); // Track username in ref
+
+    // Keep username ref in sync
+    useEffect(() => {
+        usernameRef.current = username;
+    }, [username]);
 
     const getCookie = (name) => {
         if (!document.cookie) {
@@ -50,18 +54,15 @@ export default function GameBoard({ onScoreUpdate }){
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify(message));
         } else {
-            // This error should now be virtually eliminated by the handleKey check
             console.error("WebSocket is not open. Ready state:", wsRef.current?.readyState);
         }
     }
 
-    // 🎯 FIX 2: handleKey now reads from the ref, ensuring it uses the latest wsOpen and over status
     const handleKey = (e) => {
         const { wsOpen: currentWsOpen, over: currentOver } = gameStateRef.current;
         
-        if (!currentWsOpen || currentOver) { 
-            console.warn("Ignoring key press: WebSocket closed, connecting, or game over.");
-            return; 
+        if (!currentWsOpen || currentOver) {
+            return;
         }
 
         let direction = '';
@@ -76,7 +77,7 @@ export default function GameBoard({ onScoreUpdate }){
         sendMessage({ type: 'move', direction });
     }
     
-    // Fetch AI models list
+    // Fetch AI models list ONCE
     useEffect(() => {
         const loadModels = async () => {
             const result = await fetchAIModels();
@@ -87,70 +88,42 @@ export default function GameBoard({ onScoreUpdate }){
         loadModels();
     }, []);
 
-    // 🎯 FIX 3: Effect to keep the ref updated with the latest state values
+    // Keep the ref updated with the latest state values
     useEffect(() => {
         gameStateRef.current = { wsOpen, over };
     }, [wsOpen, over]);
 
-    // WebSocket connection logic
+    // WebSocket connection logic - ONLY runs once on mount
     useEffect(() => {
         let mounted = true;
+        console.log("WebSocket connection effect running (should only see this ONCE)");
         
         const initWebSocket = async () => {
+            if (!mounted) return;
+            
             try {
                 await ensureSession();
                 
-                const session = getCookie("sessionid");
-                const csrf = getCookie("csrftoken");
-                
-                console.log("Session after ensure:", session);
-                console.log("CSRF after ensure:", csrf);
-                
-                // Get environment and determine WebSocket URL
                 const isDevelopment = import.meta.env.DEV;
+                const connectionId = Date.now().toString(36);
+                const sessionId = getCookie("sessionid") || "anonymous";
+                
+                const loc = window.location;
                 let wsUrl;
                 
-                // Generate a unique connection ID and get session
-                const connectionId = Date.now().toString(36); 
-                const sessionId = getCookie("sessionid") || "anonymous";
-
-                // Test multiple connection approaches - the most common WebSocket issue is the URL
-                // We'll try different options and log what we're trying
-                
-                console.log("Trying to determine best WebSocket URL in environment:", 
-                    isDevelopment ? "Development" : "Production");
-                
-                // Get the current window location for relative URLs
-                const loc = window.location;
-                console.log("Current location:", loc.toString());
-                
                 if (isDevelopment) {
-                    // In development, we need to handle the fact that frontend and backend 
-                    // are on different ports/servers
-                    
-                    // OPTION 1: Direct connection to backend (most reliable in development)
-                    wsUrl = `ws://127.0.0.1:8000/ws/game/?id=${connectionId}&session=${sessionId}`;
-                    console.log("Using direct IP connection to backend:", wsUrl);
-                    
-                    // If you're having problems with the direct connection, try these alternatives:
-                    // OPTION 2: Localhost instead of IP
-                    // wsUrl = `ws://localhost:8000/ws/game/?id=${connectionId}&session=${sessionId}`;
-                    
-                    // OPTION 3: Use relative path (requires proper Vite proxy setup)
-                    // wsUrl = `ws://${loc.host}/ws/game/?id=${connectionId}&session=${sessionId}`;
+                    wsUrl = `ws://localhost:8000/ws/game/?id=${connectionId}&session=${sessionId}`;
                 } else {
-                    // For production, use the relative path based on current domain
                     const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
                     wsUrl = `${protocol}//${loc.host}/ws/game/?id=${connectionId}&session=${sessionId}`;
-                    console.log("Using production WebSocket URL:", wsUrl);
                 }
                 
-                console.log("WebSocket URL (final):", wsUrl);
-                console.log("Session cookie:", sessionId);
+                console.log("Connecting to WebSocket:", wsUrl);
 
                 if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
-                    console.log("Socket already connecting/open, skipping extra connection attempt.");
-                    return; 
+                    console.log("Closing existing socket before reconnect");
+                    wsRef.current.close(1000, "Reconnecting");
+                    await new Promise(resolve => setTimeout(resolve, 100));
                 }
 
                 const socket = new WebSocket(wsUrl);
@@ -161,142 +134,154 @@ export default function GameBoard({ onScoreUpdate }){
                 }
 
                 socket.onopen = () => {
-                    if (mounted) {
-                        setWsOpen(true);
-                        console.log("%cWebSocket connection established! ✅", "color: green; font-weight: bold;");
-                        console.log("Socket ready state:", socket.readyState);
-                        wsRef.current.retryCount = 0; 
-                        
-                        // Send a ping to ensure the connection is really working
-                        try {
-                            setTimeout(() => {
-                                if (socket && socket.readyState === WebSocket.OPEN) {
-                                    console.log("Sending ping message to verify connection");
-                                    socket.send(JSON.stringify({ type: "ping" }));
-                                }
-                            }, 1000);
-                        } catch (err) {
-                            console.error("Error sending ping message:", err);
-                        }
-                    }
+                    if (!mounted) return;
+                    setWsOpen(true);
+                    console.log("%cWebSocket OPEN ✅", "color: green; font-weight: bold;");
+                    wsRef.current.retryCount = 0;
                 };
 
                 socket.onmessage = (event) => {
+                    if (!mounted) return;
                     try {
                         const data = JSON.parse(event.data);
-                        console.log("Received websocket message:", data.type);
                         
                         if (data.type === "init" || data.type === "update") {
                             setBoard(data.board);
                             setScore(data.score);
                             setOver(data.over);
                             
-                            // Handle username if present
                             if (data.username) {
                                 setUsername(data.username);
-                                console.log("Authenticated username received:", data.username);
                             }
                             
                             if (onScoreUpdate) {
                                 onScoreUpdate(data.score);
                             }
-                            
-                            // For debugging - log only on init or score changes
-                            if (data.type === "init" || data.score > score) {
-                                console.log("Game state updated:", { 
-                                    board: data.board,
-                                    score: data.score, 
-                                    over: data.over,
-                                    username: data.username
-                                });
-                            }
-                        } else if (data.type === "error") {
-                            console.error("%cWebSocket Error from server:", "color: red; font-weight: bold;", data.message);
-                        } else if (data.type === "pong") {
-                            console.log("Received pong response - connection verified");
                         }
                     } catch (err) {
-                        console.error("Error parsing message:", err, "Raw data:", event.data);
+                        console.error("Error parsing message:", err);
                     }
                 };
 
                 socket.onclose = (e) => {
-                    if (mounted) {
-                        setWsOpen(false);
-                        console.log("%cWebSocket Closed", "color: orange; font-weight: bold;");
-                        console.log("Code:", e.code, "Reason:", e.reason || "No Reason");
-                        console.log("Was Clean:", e.wasClean);
-                        
-                        if (e.code === 1000 || e.code === 1001) { 
-                            console.log("Normal close, not reconnecting.");
-                            return;
-                        }
+                    if (!mounted) return;
+                    setWsOpen(false);
+                    console.log("%cWebSocket CLOSED", "color: orange;", "Code:", e.code);
+                    
+                    // Don't auto-reconnect on normal closes
+                    if (e.code === 1000 || e.code === 1001) {
+                        return;
+                    }
 
-                        const retryCount = wsRef.current?.retryCount || 0;
+                    const retryCount = wsRef.current?.retryCount || 0;
+                    
+                    if (retryCount < 5) {
+                        const reconnectDelay = Math.min(1000 * Math.pow(2, retryCount), 30000);
+                        console.log(`Reconnect attempt ${retryCount + 1}/5 in ${reconnectDelay}ms`);
                         
-                        if (retryCount < 5) {
-                            const reconnectDelay = Math.min(1000 * Math.pow(2, retryCount), 30000); 
-                            console.log(`WebSocket reconnect attempt ${retryCount + 1}/5 in ${reconnectDelay}ms`);
-                            
-                            setTimeout(() => {
-                                if (mounted) {
-                                    const sessionCookie = getCookie("sessionid");
-                                    // We'll try to reconnect even without session now
-                                    if (!sessionCookie) {
-                                        console.log("No session cookie found, trying anonymous connection");
-                                    }
-                                    
-                                    if (wsRef.current) {
-                                        wsRef.current.retryCount = retryCount + 1;
-                                    }
-                                    console.log("%cAttempting to reconnect WebSocket...", "color: blue; font-weight: bold;");
-                                    initWebSocket(); 
-                                }
-                            }, reconnectDelay);
-                        } else {
-                            console.log("%cMaximum reconnection attempts reached. Please refresh the page.", "color: red; font-weight: bold;");
-                            alert("Connection to game server lost. Please refresh the page to reconnect.");
-                        }
+                        setTimeout(() => {
+                            if (mounted && wsRef.current) {
+                                wsRef.current.retryCount = retryCount + 1;
+                                initWebSocket();
+                            }
+                        }, reconnectDelay);
                     }
                 };
 
                 socket.onerror = (e) => {
-                    console.error("%cWebSocket Error:", "color: red; font-weight: bold;", e);
-                    // On error, try to log more details for debugging
-                    console.log("Socket state at error:", {
-                        readyState: socket.readyState,
-                        bufferedAmount: socket.bufferedAmount,
-                        protocol: socket.protocol
-                    });
+                    console.error("WebSocket Error:", e);
                 };
-
             } catch (error) {
-                console.error("Error setting up WebSocket connection:", error);
+                console.error("Error setting up WebSocket:", error);
             }
         };
         
+        // Store reconnect function in ref
+        reconnectFnRef.current = () => {
+            console.log("Manual reconnect triggered");
+            if (wsRef.current) {
+                wsRef.current.close(1000, "Manual reconnect");
+            }
+            setTimeout(() => initWebSocket(), 200);
+        };
+        
         initWebSocket();
-
-        // Add keydown listener only once (this can be moved outside the effect if preferred)
         window.addEventListener('keydown', handleKey);
 
-        // Cleanup function for useEffect
         return () => {
+            console.log("WebSocket effect cleanup");
             mounted = false;
             window.removeEventListener('keydown', handleKey);
             
             if (wsRef.current) {
                 if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
-                     wsRef.current.close(1000, "Component unmounted");
+                    wsRef.current.close(1000, "Component unmounted");
                 }
             }
         };
-    }, []); // Removed onScoreUpdate dependency to prevent reconnecting when parent updates
+    }, []); // Empty dependency array - only run once!
+    
+    // Auth checking - completely separate from WebSocket
+    useEffect(() => {
+        console.log("Auth effect running (should only see this ONCE)");
+        
+        const checkAuth = async () => {
+            try {
+                const user = await getCurrentUser();
+                setUsername(user || null);
+            } catch (error) {
+                console.error("Error checking authentication:", error);
+            }
+        };
+        
+        checkAuth();
+        
+        const handleAuthChange = (event) => {
+            const { authenticated, user } = event.detail;
+            const previousUsername = usernameRef.current;
+            
+            console.log(`Auth change: ${previousUsername} → ${user?.username || 'null'}`);
+            
+            if (authenticated && user && user.username) {
+                setUsername(user.username);
+                
+                // Only reconnect if this is a NEW login
+                if (!previousUsername && reconnectFnRef.current) {
+                    console.log("New login detected - reconnecting");
+                    setTimeout(() => reconnectFnRef.current(), 500);
+                }
+            } else {
+                setUsername(null);
+                
+                // Only reconnect if user was logged in before
+                if (previousUsername && reconnectFnRef.current) {
+                    console.log("Logout detected - reconnecting");
+                    setTimeout(() => reconnectFnRef.current(), 500);
+                }
+            }
+        };
+        
+        window.addEventListener('auth-state-change', handleAuthChange);
+        
+        // Check auth less frequently to reduce API spam
+        const authCheckInterval = setInterval(checkAuth, 30000); // Every 30 seconds instead of 10
+        
+        return () => {
+            console.log("Auth effect cleanup");
+            window.removeEventListener('auth-state-change', handleAuthChange);
+            clearInterval(authCheckInterval);
+        };
+    }, []); // Empty dependency array!
 
-    // Restart the game
     const handleRestart = () => {
         sendMessage({ type: 'restart' });
     }
+
+    const handleManualReconnect = () => {
+        if (reconnectFnRef.current) {
+            reconnectFnRef.current();
+        }
+    };
 
     return (
         <div className="bg-white shadow-xl rounded-xl p-6 border-t-4 border-blue-500">
@@ -323,73 +308,7 @@ export default function GameBoard({ onScoreUpdate }){
                     </p>
                     {!wsOpen && (
                         <button 
-                            onClick={() => {
-                                console.log("Manual reconnect requested");
-                                if (wsRef.current) {
-                                    if (wsRef.current.readyState === WebSocket.OPEN || 
-                                        wsRef.current.readyState === WebSocket.CONNECTING) {
-                                        wsRef.current.close();
-                                    }
-                                    wsRef.current = null;
-                                }
-                                // Force a new connection
-                                const initWebSocket = async () => {
-                                    try {
-                                        await ensureSession();
-                                        const connectionId = Date.now().toString(36);
-                                        const sessionId = getCookie("sessionid") || "anonymous";
-                                        const wsUrl = `ws://127.0.0.1:8000/ws/game/?id=${connectionId}&session=${sessionId}`;
-                                        console.log("Reconnecting with URL:", wsUrl);
-                                        
-                                        const socket = new WebSocket(wsUrl);
-                                        wsRef.current = socket;
-                                        
-                                        socket.onopen = () => {
-                                            setWsOpen(true);
-                                            console.log("Reconnection successful!");
-                                        };
-                                        
-                                        socket.onclose = () => {
-                                            setWsOpen(false);
-                                            console.log("Reconnection failed");
-                                        };
-                                        
-                                        socket.onmessage = (event) => {
-                                            try {
-                                                const data = JSON.parse(event.data);
-                                                console.log("Received:", data.type);
-                                                
-                                                if (data.type === "init" || data.type === "update") {
-                                                    setBoard(data.board);
-                                                    setScore(data.score);
-                                                    setOver(data.over);
-                                                    
-                                                    // Handle username if present
-                                                    if (data.username) {
-                                                        setUsername(data.username);
-                                                        console.log("Authenticated username received:", data.username);
-                                                    }
-                                                    
-                                                    if (onScoreUpdate) {
-                                                        onScoreUpdate(data.score);
-                                                    }
-                                                }
-                                            } catch (err) {
-                                                console.error("Error processing message:", err);
-                                            }
-                                        };
-                                        
-                                        socket.onerror = (e) => {
-                                            console.error("Reconnection error:", e);
-                                        };
-                                        
-                                    } catch (error) {
-                                        console.error("Error in manual reconnection:", error);
-                                    }
-                                };
-                                
-                                initWebSocket();
-                            }}
+                            onClick={handleManualReconnect}
                             className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-2 py-1 rounded transition duration-300"
                         >
                             Reconnect
