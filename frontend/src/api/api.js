@@ -18,6 +18,18 @@ setupCSRF().catch(err => {
     console.log('API will still attempt to function without CSRF protection');
 });
 
+// Ensure session is created
+export const ensureSession = async () => {
+    try {
+        const res = await axios.get(`${API_BASE}/debug-session/`);
+        console.log('Session verified:', res.data);
+        return { success: true, data: res.data };
+    } catch (err) {
+        console.error('Failed to create session:', err);
+        return { success: false, error: err.message };
+    }
+};
+
 // --- NEW AUTHENTICATION FUNCTIONS ---
 
 /**
@@ -178,5 +190,32 @@ export const fetchLeaderboard = async()=>{
             error: error.response?.data?.error || 'Failed to load leaderboard.', 
             success: false 
         };
+    }
+}
+
+/**
+ * Fetches current logged in user information.
+ * This is used to check authentication status and get user details.
+ */
+export const fetchCurrentUser = async () => {
+    try {
+        console.log('Trying to fetch user from:', `${API_BASE}/user/`);
+        const res = await axios.get(`${API_BASE}/user/`, { 
+            withCredentials: true,
+            // Add timeout to prevent long waits if server is down
+            timeout: 5000
+        });
+        console.log('Current user data:', res.data);
+        return res.data;
+    } catch (error) {
+        if (error.response && error.response.status === 404) {
+            console.warn('User endpoint not found (404). Make sure the backend route is correctly set up.');
+        } else if (error.response && error.response.status === 401) {
+            console.log('User not authenticated (401). This is normal if not logged in.');
+        } else {
+            console.error('Failed to fetch current user:', error);
+        }
+        // Return null for any error - the app should handle this as "not authenticated"
+        return null;
     }
 }

@@ -14,85 +14,142 @@ class Game2048:
             return
     
         r,c = random.choice(empty)
+        # 90% chance of 2, 10% chance of 4
         self.board[r][c] = random.choices([2,4],[0.9, 0.1])[0]
 
     def compress(self, row):
+        """Removes zeros by moving non-zero tiles to the left."""
         new_row = [i for i in row if i!=0]
         new_row += [0]*(4- len(new_row))
         return new_row
     
     def merge(self, row):
+        """Merges tiles in a compressed row (leftward). Returns the merged row and a flag if a merge occurred."""
+        merged = False
         for i in range(3):
             if row[i] == row[i+1] and row[i] != 0:
                 row[i] *= 2
                 self.score += row[i]
-                row[i+1] = 0
-        return row
+                row[i+1] = 0  # CRITICAL: Set the merged tile to 0
+                merged = True
+        return row, merged
     
     def move_left(self):
+        """Performs one full move-left operation (compress, merge, compress)."""
         moved = False
         new_board = []
-        for row in self.board:
-            original_row = list(row) # <-- Keep an original copy
+        
+        for r in range(4):
+            original_row = list(self.board[r])
             
-            compressed = self.compress(original_row)
-            merged = self.merge(compressed)
-            final = self.compress(merged)
+            # 1. Compress (Move all non-zero tiles to the left)
+            compressed_row = self.compress(original_row)
             
-            # Check if the final result is different from the original row
-            if final != row:
+            # 2. Merge (Merge tiles)
+            merged_row, merge_occurred = self.merge(compressed_row)
+            
+            # 3. Compress again (Move the newly created zeros from merging to the right)
+            final_row = self.compress(merged_row)
+            
+            # Check if any change occurred (either compression or merging)
+            if final_row != original_row:  # Compare with original_row, not self.board[r]
                 moved = True
-            new_board.append(final)
+                
+            new_board.append(final_row)
             
         self.board = new_board
+        
+        # Add a new tile if the board changed
         if moved:
             self.add_random_tile()
+            print("Added random tile after move")
+            
         return moved
 
 
     def move(self, direction):
-            rotated = False
-            if direction == 'up':
-                self.board = [list(row) for row in zip(*self.board)]
-                rotated = True
-                moved = self.move_left()
-                self.board = [list(row) for row in zip(*self.board)]
-            elif direction == 'down':
-                # 1. Reverse the rows of the board
-                self.board.reverse() 
-                # 2. Transpose (Now columns are reversed and become rows)
-                self.board = [list(row) for row in zip(*self.board)] 
-                
-                moved = self.move_left() # Slide down
+        moved = False
+        
+        # Keep a copy of the board before the move to check if any change occurred
+        board_before_move = [list(row) for row in self.board]
 
-                # 3. Transpose back
-                self.board = [list(row) for row in zip(*self.board)]
-                # 4. Reverse the rows back
-                self.board.reverse() 
-                
-                rotated = True 
-            elif direction == 'right':
-                self.board = [list(reversed(row)) for row in self.board]
-                moved = self.move_left()
-                self.board = [list(reversed(row)) for row in self.board]
-            else:  # left
-                moved = self.move_left()
-            self.over = self.is_game_over()
-            return moved
+        if direction == 'up':
+            # Transpose (rotate 90 degrees counter-clockwise)
+            self.board = [list(row) for row in zip(*self.board)] 
+            
+            # Move Left (which is now Up in the original orientation)
+            moved = self.move_left() 
+            
+            # Transpose back (rotate 90 degrees clockwise)
+            self.board = [list(row) for row in zip(*self.board)]
+
+        elif direction == 'down':
+            # Transpose (turn rows into columns)
+            self.board = [list(row) for row in zip(*self.board)] 
+            # Reverse each row (to make 'left' act like 'right' on the columns)
+            self.board = [row[::-1] for row in self.board]
+            
+            # Move Left (which is now Down in the original orientation)
+            moved = self.move_left() 
+
+            # Reverse each row back
+            self.board = [row[::-1] for row in self.board]
+            # Transpose back
+            self.board = [list(row) for row in zip(*self.board)]
+
+        elif direction == 'right':
+            # Reverse each row
+            self.board = [row[::-1] for row in self.board]
+            
+            # Move Left (which is now Right in the original orientation)
+            moved = self.move_left()
+            
+            # Reverse each row back
+            self.board = [row[::-1] for row in self.board]
+            
+        elif direction == 'left': 
+            moved = self.move_left()
+            
+        # The move_left method will add a tile if it moved
+        # We don't need additional logic here as each direction calls move_left
+        # which handles adding the random tile internally
+        
+        # Update the game over status
+        self.over = self.is_game_over()
+        
+        # For debugging
+        if moved:
+            print(f"Move {direction} was valid, new score: {self.score}")
+        else:
+            print(f"Move {direction} was invalid")
+            
+        # Return whether the move was valid
+
+        self.over = self.is_game_over()
+        return moved
 
 
     def is_game_over(self):
+        # 1. Check for empty spots
         for r in range(4):
             for c in range(4):
                 if self.board[r][c] == 0:
                     return False
-                if c < 3 and self.board[r][c] == self.board[r][c+1]:
+        
+        # 2. Check for possible horizontal merges
+        for r in range(4):
+            for c in range(3):
+                if self.board[r][c] == self.board[r][c+1]:
                     return False
-                if r < 3 and self.board[r][c] == self.board[r+1][c]:
+                    
+        # 3. Check for possible vertical merges
+        for r in range(3):
+            for c in range(4):
+                if self.board[r][c] == self.board[r+1][c]:
                     return False
+                    
         return True
     
-
     def get_state(self):
         return {
             'board':self.board,

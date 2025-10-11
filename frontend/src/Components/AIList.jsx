@@ -1,27 +1,27 @@
 import { useEffect, useState } from "react";
-import { fetchAIModels, purchaseAI } from "../api/api"; // Corrected import name
+// 🎯 CRITICAL FIX: Ensure the function name is correct
+import { fetchAIModels, purchaseAI } from "../api/api"; 
 
 export default function AIList({ onStartAI }) {
     const [aiModels, setAiModels] = useState([]);
-    const [loading, setLoading] = useState(false);
+    // Use a specific status for an ongoing unlock/purchase, separate from general list loading
+    const [isProcessing, setIsProcessing] = useState(false); 
+    const [listLoading, setListLoading] = useState(true);
     const [statusMessage, setStatusMessage] = useState(null);
 
     // --- Data Fetching Effect ---
     const loadAIModels = async () => {
-        setLoading(true);
+        setListLoading(true);
         setStatusMessage(null);
         
         const result = await fetchAIModels();
         
         if (result.success) {
-            // Assuming result.data is an array of AI models
             setAiModels(result.data);
-            setStatusMessage(null);
         } else {
-            // Display error from the API call
             setStatusMessage({ type: 'error', message: result.error || 'Failed to load AI models.' });
         }
-        setLoading(false);
+        setListLoading(false);
     };
 
     useEffect(() => {
@@ -30,7 +30,7 @@ export default function AIList({ onStartAI }) {
 
     // --- Purchase Handler ---
     const handleUnlock = async (id) => {
-        setLoading(true);
+        setIsProcessing(true); // Indicate a transaction is pending
         setStatusMessage(null);
         
         const result = await purchaseAI(id);
@@ -38,58 +38,78 @@ export default function AIList({ onStartAI }) {
         if (result.success) {
             // Display success message and reload the list to show the model as unlocked
             setStatusMessage({ type: 'success', message: result.data.success || 'AI unlocked successfully!' });
+            // Reload to get updated unlocked status and user points (if points are in user context)
             await loadAIModels(); 
         } else {
             // Display the specific error (e.g., "Not enough points")
             setStatusMessage({ type: 'error', message: result.error || 'Unlock failed.' });
         }
-        setLoading(false);
+        setIsProcessing(false);
     };
 
     // --- Rendering Logic ---
 
     const StatusDisplay = () => {
         if (!statusMessage) return null;
-        const style = { 
-            color: statusMessage.type === 'error' ? 'red' : 'green',
-            fontWeight: 'bold',
-            marginTop: '10px'
-        };
-        return <p style={style}>{statusMessage.message}</p>;
+        const base = "mt-3 p-3 rounded text-sm font-medium shadow-sm";
+        const style = statusMessage.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700';
+        
+        return <p className={`${base} ${style}`}>{statusMessage.message}</p>;
     };
+    
+    // Determine the overall busy state
+    const isBusy = listLoading || isProcessing;
 
     return (
-        <div>
-            <h3>AI Models</h3>
-            {/* Display general loading state while fetching list */}
-            {loading && !aiModels.length && <p>Loading AI list...</p>}
+        <div className="bg-white shadow-xl rounded-xl p-6 border-t-4 border-purple-500 min-h-full">
+            <h3 className="text-2xl font-bold mb-4 text-gray-800 flex items-center">
+                🤖 AI Competitors
+            </h3>
             
+            {/* Display general loading state while fetching list */}
+            {listLoading && (
+                <p className="text-gray-500 flex items-center">
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Loading AI list...
+                </p>
+            )}
+
             <StatusDisplay />
 
-            <ul>
+            <ul className="mt-4 space-y-4">
                 {aiModels.map((ai) => (
-                    <li key={ai.id} className="mb-4 p-2 border rounded">
-                        <strong>{ai.name}</strong> (Tier {ai.tier}, Cost: {ai.cost} points)
-                        <div>{ai.description}</div>
+                    <li key={ai.id} className="p-4 bg-gray-50 rounded-lg shadow-sm border border-gray-200">
+                        <div className="flex justify-between items-start mb-2">
+                            <strong className="text-lg font-semibold text-purple-700">{ai.name}</strong> 
+                            <span className="text-sm px-2 py-0.5 rounded-full bg-purple-100 text-purple-600">
+                                Tier {ai.tier}
+                            </span>
+                        </div>
                         
-                        <div className="mt-2 space-x-2">
-                            {/* The 'unlocked' flag MUST come from your backend serializer/model */}
+                        <div className="text-sm text-gray-600 mb-3">{ai.description}</div>
+                        
+                        <div className="flex justify-end space-x-2">
+                            {/* Play Button */}
                             <button 
                                 onClick={() => onStartAI(ai.name)}
-                                disabled={!ai.unlocked || loading} // Disable if not unlocked or busy
-                                className={`p-1 rounded ${ai.unlocked ? 'bg-blue-500 text-white' : 'bg-gray-400'}`}
+                                disabled={!ai.unlocked || isBusy} 
+                                className={`px-4 py-2 rounded-lg font-semibold transition duration-300 shadow-md 
+                                    ${ai.unlocked ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
                             >
-                                {ai.unlocked ? `Play ${ai.name}` : 'Locked'}
+                                {ai.unlocked ? 'Start Game' : 'Locked'}
                             </button>
                             
-                            {/* Conditionally render the Unlock button */}
+                            {/* Unlock Button */}
                             {!ai.unlocked && (
                                 <button 
                                     onClick={() => handleUnlock(ai.id)}
-                                    disabled={loading} // Disable if any transaction is pending
-                                    className="p-1 rounded bg-green-500 text-white"
+                                    disabled={isBusy} 
+                                    className="px-4 py-2 rounded-lg font-semibold transition duration-300 shadow-md bg-green-500 hover:bg-green-600 text-white disabled:opacity-50"
                                 >
-                                    {loading ? 'Processing...' : `Unlock for ${ai.cost} pts`}
+                                    {isProcessing ? 'Processing...' : `Unlock for ${ai.cost} pts`}
                                 </button>
                             )}
                         </div>
@@ -97,13 +117,12 @@ export default function AIList({ onStartAI }) {
                 ))}
             </ul>
             
-            {/* Optional: Add a button to manually refresh the list */}
             <button 
                 onClick={loadAIModels} 
-                disabled={loading}
-                className="mt-4 p-2 bg-yellow-500 text-white rounded"
+                disabled={isBusy}
+                className="mt-6 w-full p-2 border border-gray-300 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition duration-200"
             >
-                {loading ? 'Refreshing...' : 'Refresh List'}
+                {isBusy ? 'Loading/Refreshing...' : 'Refresh AI List'}
             </button>
         </div>
     );

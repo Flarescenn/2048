@@ -7,11 +7,34 @@ from .models import AIModel, UserUnlocked, Game # Assuming these models are defi
 from .serializers import AISerializer, UserUnlockedSerializer, GameSerializer # Assuming these serializers are defined
 from django.contrib.auth import logout
 from django.conf import settings
+from django.http import JsonResponse
 
 # --- CSRF DIAGNOSTIC IMPORTS ---
 from django.views.decorators.csrf import csrf_exempt 
 from django.utils.decorators import method_decorator
 # -------------------------------
+
+# ----------------------------------------------------------------------
+# Session Debug View
+# ----------------------------------------------------------------------
+class SessionDebugView(APIView):
+    """Debug view to check session functionality"""
+    permission_classes = [permissions.AllowAny]
+    
+    def get(self, request):
+        # Force session creation if it doesn't exist
+        if not request.session.session_key:
+            request.session.create()
+            request.session.save()
+        
+        # Return session info
+        return JsonResponse({
+            'session_key': request.session.session_key,
+            'user_authenticated': request.user.is_authenticated,
+            'user_id': request.user.id if request.user.is_authenticated else None,
+            'csrf_token': request.META.get('CSRF_COOKIE', None),
+            'session_keys': list(request.session.keys()),
+        })
 
 
 

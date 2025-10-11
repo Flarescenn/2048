@@ -59,12 +59,17 @@ class LoginAPIView(APIView):
 @method_decorator(csrf_exempt, name='dispatch')
 class LogoutAPIView(APIView):
     """Handles user logout and destroys the session."""
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        # CRITICAL: This logs the user out and clears the session cookie
-        logout(request) 
-        return Response({"message": "Successfully logged out."}, status=status.HTTP_200_OK)
+        # Check if user is authenticated before logout
+        if request.user.is_authenticated:
+            # CRITICAL: This logs the user out and clears the session cookie
+            logout(request)
+            return Response({"message": "Successfully logged out."}, status=status.HTTP_200_OK)
+        else:
+            # Handle case where user is already logged out
+            return Response({"message": "No active user session."}, status=status.HTTP_200_OK)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -125,3 +130,34 @@ class CSRFTokenView(APIView):
     def get(self, request):
         # The ensure_csrf_cookie decorator ensures that the CSRF cookie is set
         return Response({"message": "CSRF cookie set"}, status=status.HTTP_200_OK)
+
+
+class CurrentUserView(APIView):
+    """Returns information about the currently logged in user."""
+    # Allow anonymous access but return different responses based on auth status
+    permission_classes = [permissions.AllowAny]
+    
+    def get(self, request):
+        user = request.user
+        
+        # If user is not authenticated, return a standardized response
+        if user.is_anonymous:
+            return Response({
+                'is_authenticated': False,
+                'message': 'Not logged in'
+            }, status=status.HTTP_200_OK)
+        
+        # Get the profile to include points
+        try:
+            profile = Profile.objects.get(user=user)
+            points = profile.points
+        except Profile.DoesNotExist:
+            points = 0
+        
+        return Response({
+            'id': user.id,
+            'username': user.username,
+            'points': points,
+            'email': user.email,
+            'is_authenticated': True
+        }, status=status.HTTP_200_OK)

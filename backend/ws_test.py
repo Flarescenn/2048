@@ -4,26 +4,49 @@ import json
 
 async def test_websocket():
     import traceback
+    import time
+    
+    # Generate test IDs
+    session_id = "test_session"
+    connection_id = f"test_{int(time.time())}"
     
     headers = {
-        'Cookie': f'sessionid=9cpom0gwcz0mercuspfghithamtj89k5; csrftoken=YcCgJBiBdIXzY6C6BxcmCykMbrnhxyHQ',
+        'Cookie': f'sessionid={session_id}; csrftoken=TestCSRFToken',
+        'Origin': 'http://localhost:8000',
     }
     
-    uri = 'ws://localhost:8000/ws/game/test123/'  # matches the URL pattern in routing.py
+    uri = f'ws://127.0.0.1:8000/ws/game/?id={connection_id}&session={session_id}'
     print(f'Attempting WebSocket connection to: {uri}')
     print(f'With headers: {headers}')
     
     try:
         async with websockets.connect(
             uri,
-            additional_headers=headers  # websockets library uses additional_headers, not extra_headers
+            extra_headers=headers
         ) as websocket:
-            print('Connected to WebSocket')
+            print('Connected to WebSocket successfully!')
+            
+            # Wait for initial state message
+            init_response = await websocket.recv()
+            print(f'Initial game state: {init_response}')
+            
+            # Send a ping message
+            print('Sending ping message...')
+            await websocket.send(json.dumps({'type': 'ping'}))
+            ping_response = await websocket.recv()
+            print(f'Ping response: {ping_response}')
             
             # Send a move command
+            print('Sending move command...')
             await websocket.send(json.dumps({'type': 'move', 'direction': 'up'}))
-            response = await websocket.recv()
-            print(f'Received: {response}')
+            move_response = await websocket.recv()
+            print(f'Move response: {move_response}')
+            
+            # Send a restart command
+            print('Sending restart command...')
+            await websocket.send(json.dumps({'type': 'restart'}))
+            restart_response = await websocket.recv()
+            print(f'Restart response: {restart_response}')
     except Exception as e:
         print(f'\nWebSocket Connection Error:')
         print(f'Error type: {type(e).__name__}')
