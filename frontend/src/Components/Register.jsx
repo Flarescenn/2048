@@ -1,6 +1,11 @@
+// In frontend/src/Components/Register.jsx
+
 import { useState, useEffect } from "react";
 import { registerUser } from "../api/api";
 import { setupCSRF } from "../api/csrf";
+
+// CRITICAL FIX: Define the key used by App.jsx to clear local storage.
+const GAME_STATE_STORAGE_KEY = 'gameBoardState'; 
 
 export default function Register({ onSuccess }){
     // Ensure CSRF token is set up before form submission
@@ -36,6 +41,9 @@ export default function Register({ onSuccess }){
             
             if(res.success){
                 console.log("Registration successful!");
+                // This line is now defined and won't throw the error:
+                localStorage.removeItem(GAME_STATE_STORAGE_KEY);
+                
                 if(onSuccess) onSuccess();
             } else {
                 alert(res.error || "Registration failed");

@@ -1,5 +1,10 @@
+// In frontend/src/Components/Login.jsx
+
 import { useState } from 'react'
 import { loginUser } from '../api/api'
+
+// CRITICAL FIX: Define the key used by App.jsx to clear local storage.
+const GAME_STATE_STORAGE_KEY = 'gameBoardState'; 
 
 export default function Login({ onSuccess }){
     const [username, setUsername] = useState('')
@@ -13,6 +18,9 @@ export default function Login({ onSuccess }){
         const res = await loginUser(username, password)
         setLoading(false)
         if(res.success){
+            // This line is now defined and won't throw the error:
+            localStorage.removeItem(GAME_STATE_STORAGE_KEY); 
+            
             if(onSuccess) onSuccess();
         } else {
             alert(res.error || 'Login failed')
@@ -28,4 +36,3 @@ export default function Login({ onSuccess }){
         </form>
     )
 }
-

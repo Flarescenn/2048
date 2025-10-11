@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import AIList from './AIList'; 
 
-// Helper function to get a color based on the tile value (retained from your preferred styling)
+// Helper function to get a color based on the tile value
 const getTileColor = (value) => {
     switch (value) {
         case 0: return 'bg-gray-300';
@@ -25,12 +25,9 @@ export default function Gameboard(){
     const [board, setBoard] = useState(Array(4).fill(null).map(() => Array(4).fill(0)))
     const [score, setScore] = useState(0)
     const [over, setOver] = useState(false)
-    // 1. REF TO HOLD THE WEBSOCKET CONNECTION (stable across renders)
     const wsRef = useRef(null);
-    // Local state for UI only (not relied on for sending)
     const [wsOpen, setWsOpen] = useState(false);
 
-    // 2. FUNCTION TO SEND THE AI START MESSAGE
     const startAI = (model) => {
         const socket = wsRef.current;
         if (socket && socket.readyState === WebSocket.OPEN) {
@@ -41,16 +38,15 @@ export default function Gameboard(){
     };
 
      useEffect(() => {
-        let mounted = true; // track mounted state to avoid setting state after unmount
+        let mounted = true; 
 
-        // Get session cookie manually and add to WebSocket URL as query param
+        // Helper to get cookies
         const getCookie = (name) => {
             const value = `; ${document.cookie}`;
             const parts = value.split(`; ${name}=`);
             if (parts.length === 2) return parts.pop().split(';').shift();
         };
         
-        // Ensure we have both session and CSRF cookies
         const sessionCookie = getCookie('sessionid');
         const csrfToken = getCookie('csrftoken');
         
@@ -59,19 +55,17 @@ export default function Gameboard(){
             return;
         }
         
-        // For WebSockets, we need to use the direct URL instead of going through the Vite proxy
-        // const wsUrl = `${import.meta.env.VITE_WS_BASE}/ws/game/${sessionId}/?session=${sessionCookie}&csrf=${csrfToken}`;
-        const wsUrl = `ws://localhost:8000/ws/game/demo123/?session=${sessionCookie}&csrf=${csrfToken}`;
+        // CRITICAL FIX: Correct WebSocket URL path now matches the routing.py
+        const wsUrl = `ws://localhost:8000/ws/game/?session=${sessionCookie}&csrf=${csrfToken}`;
 
-        console.log('WebSocket URL:', wsUrl);
+        console.log('WebSocket URL (final):', wsUrl);
         console.log('Session cookie:', sessionCookie);
 
         const socket = new WebSocket(wsUrl);
-        // store immediately so handlers/cleanup can reference the same object
         wsRef.current = socket;
 
         socket.onopen = () => {
-            if (!mounted) return; // ignore if unmounted during connect
+            if (!mounted) return; 
             setWsOpen(true);
             console.log("WebSocket connection established successfully.");
         };
@@ -87,17 +81,15 @@ export default function Gameboard(){
 
         // Optional: Add onerror/onclose handlers for better debugging
        socket.onclose = (e) => {
-           console.log(`WebSocket Closed (Code: ${e.code}, Reason: ${e.reason || 'No Reason'}).`);
-           // reflect closed state
-           if (mounted) setWsOpen(false);
-       };
-       socket.onerror = (e) => {
-           console.error("WebSocket Error:", e);
-       };
+            console.log(`WebSocket Closed (Code: ${e.code}, Reason: ${e.reason || 'No Reason'}).`);
+            if (mounted) setWsOpen(false);
+        };
+        socket.onerror = (e) => {
+            console.error("WebSocket Error:", e);
+        };
 
 
         const handleKey = (e) => {
-            // Use 'socket' here, which is the local variable for the connection
             if (over || !socket || socket.readyState !== WebSocket.OPEN) return; 
             
             let dir = null;
@@ -117,16 +109,10 @@ export default function Gameboard(){
         // Cleanup function: Close the socket and remove listener
         return () => {
             mounted = false;
-            // Remove event listener first
             window.removeEventListener("keydown", handleKey);
 
-            // If socket still exists and is not already closed, close it.
-            // Avoid calling close() on a socket that is in CLOSING/CLOSED state to prevent the warning.
             const s = wsRef.current;
             if (s && s.readyState === WebSocket.CONNECTING) {
-                // If still connecting, give it a small chance to open and then close gracefully.
-                // But in Strict Mode React may call mount/unmount quickly; safest is to remove handlers and
-                // simply null out the ref so any eventual open doesn't try to set state on unmounted component.
                 s.onopen = null;
                 s.onmessage = null;
                 s.onclose = null;
@@ -139,19 +125,18 @@ export default function Gameboard(){
                 wsRef.current = null;
             }
             if (mounted === false) {
-                // ensure UI state shows closed
                 setWsOpen(false);
             }
         };
-    }, [over]); // Dependency array: only re-run if sessionId or over changes
+    }, [over]);
 
     return (
         <div className="flex flex-col items-center p-4">
             <h2 className="text-2xl font-bold mb-4">Score: {score}</h2>
             {over && <h3 className="text-red-600 font-extrabold text-4xl mb-4">Game Over</h3>}
             
-            {/* 3. RENDER THE AIList COMPONENT AND PASS startAI */}
-            {/* <AIList onStartAI={startAI} /> */} 
+            {/* RENDER THE AIList COMPONENT AND PASS startAI */}
+            {/* If AIList takes too much space, uncomment this: <AIList onStartAI={startAI} /> */} 
             
             <div className="grid grid-cols-4 gap-2 w-64 p-2 bg-gray-400 rounded-lg shadow-lg">
                 {board.flat().map((cell, idx) => {
@@ -160,7 +145,6 @@ export default function Gameboard(){
                     return (
                         <div 
                             key={idx}
-                            // Fixed layout classes
                             className={`w-full aspect-square flex items-center justify-center font-bold text-2xl rounded-md transition-all duration-100 ${tileClasses}`}
                         >
                             {cell !== 0 ? cell : ""} 

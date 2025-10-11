@@ -5,11 +5,14 @@ from django.db import transaction # Import for atomic transactions
 from django.shortcuts import get_object_or_404 # Efficient object retrieval
 from .models import AIModel, UserUnlocked, Game # Assuming these models are defined
 from .serializers import AISerializer, UserUnlockedSerializer, GameSerializer # Assuming these serializers are defined
+from django.contrib.auth import logout
+from django.conf import settings
 
 # --- CSRF DIAGNOSTIC IMPORTS ---
 from django.views.decorators.csrf import csrf_exempt 
 from django.utils.decorators import method_decorator
 # -------------------------------
+
 
 
 # ----------------------------------------------------------------------
@@ -146,3 +149,45 @@ class LeaderboardView(APIView):
         serializer = GameSerializer(top_games, many=True)
         
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+# ----------------------------------------------------------------------
+# 5. LogoutView (CRITICAL FIX FOR PERSISTENT SESSION TOKEN)
+# ----------------------------------------------------------------------
+
+class LogoutView(APIView):
+    """
+    Invalidates the server-side session and explicitly deletes 
+    client-side session and CSRF cookies for proper logout in SPAs.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        # 1. Invalidate the server-side session (clears data from DB/cache)
+        logout(request)
+        
+        # 2. Prepare the success response
+        response = Response(
+            {"message": "Successfully logged out. Session terminated."}, 
+            status=status.HTTP_200_OK
+        )
+
+        # 3. *** CRITICAL FIX: Delete Cookies on the Client-Side ***
+        # The key is to match the parameters (path, domain, samesite) 
+        # used when the cookie was originally SET by Django.
+
+        # Delete the main session cookie (e.g., 'sessionid')
+        response.delete_cookie(
+            settings.SESSION_COOKIE_NAME, 
+            path=settings.SESSION_COOKIE_PATH, 
+            samesite=settings.SESSION_COOKIE_SAMESITE # Typically 'Lax' or 'None'
+        )
+        
+        # Delete the CSRF token cookie (e.g., 'csrftoken')
+        # Deleting the CSRF cookie ensures new requests require a new token.
+        response.delete_cookie(
+            settings.CSRF_COOKIE_NAME, 
+            path=settings.CSRF_COOKIE_PATH,
+            samesite=settings.CSRF_COOKIE_SAMESITE # Typically 'Lax' or 'None'
+        )
+        
+        return response

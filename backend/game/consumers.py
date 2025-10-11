@@ -11,6 +11,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         super().__init__(*args, **kwargs)
         self.ai_task = None
         self.group_name = None
+        # CRITICAL: self.game_key will now be the user's unique ID
         self.game_key = None 
         self.game = None
 
@@ -44,47 +45,41 @@ class GameConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         # Debug logging
         print(">>> WebSocket Connection Attempt <<<")
-        print(f"Scope keys: {self.scope.keys()}")
-        print(f"Headers: {dict(self.scope.get('headers', []))}")
         
-        # 1. ENFORCE AUTHENTICATION
+        # 1. ENFORCE AUTHENTICATION AND GET USER
         user = self.scope.get("user", None)
         session = self.scope.get("session", None)
         
         print(f"User: {user}")
         print(f"Session: {session}")
         
+        # Authentication check (Good, keep this)
         if not user or user.is_anonymous or not session:
             print(">>> SERVER LOG: AUTH REJECTED <<<")
-            print(f"User exists: {bool(user)}")
-            print(f"User anonymous: {user.is_anonymous if user else 'N/A'}")
-            print(f"Session exists: {bool(session)}")
             await self.close(code=4001)
             return
             
-        # 2. Set the unique key and group name based on the session ID from URL
-        try:
-            self.game_key = self.scope['url_route']['kwargs']['session_id']
-            self.group_name = f"game_{self.game_key}"
-            print(f"Authenticated User {user.pk} Connected. Game Key: {self.game_key}")
-        except KeyError:
-            print(">>> SERVER LOG: No session_id in URL <<<")
-            await self.close(code=4002)
-            return
+        # 2. CRITICAL FIX: Use the User's Primary Key (PK) as the unique game identifier.
+        # This ensures each authenticated user gets their own game instance.
+        user_id = str(user.pk)
+        self.game_key = user_id
+        self.group_name = f"game_{user_id}"
+        
+        print(f"Authenticated User {user_id} Connected. Game Key: {self.game_key}")
         
         await self.accept()
 
-        # 4. Create or retrieve the game using the unique key
+        # 3. Create or retrieve the game using the unique user key
         if self.game_key not in active_games:
             print(f"Creating new game for user {self.game_key}")
             active_games[self.game_key] = Game2048()
         
         self.game = active_games[self.game_key]
         
-        # 5. Add to group
+        # 4. Add to group
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         
-        # 6. Send initial game state
+        # 5. Send initial game state
         await self.send(text_data=json.dumps({
             "type": "init",
             "board": self.game.board,
@@ -105,10 +100,8 @@ class GameConsumer(AsyncWebsocketConsumer):
         try:
             data = json.loads(text_data)
             
-            # Since connect() enforces authentication, we can assume self.game is set.
             if not self.game: return 
             
-            # Handle player moves and other logic (unchanged from your previous version)
             if data.get("type") == "move":
                 direction = data.get("direction")
                 if direction in ["up", "down", "left", "right"]:
@@ -119,21 +112,17 @@ class GameConsumer(AsyncWebsocketConsumer):
                             self.group_name,
                             {"type": "broadcast_state", "board": self.game.board, "score": self.game.score, "over": self.game.over}
                         )
-                    # ... (error message logic omitted for brevity, but keep in your file)
-            
-            # Handle AI requests (unchanged logic)
+                        
             elif data.get("type") == "ai":
                 agent_name = data.get("agent")
                 if agent_name:
                     if self.ai_task: self.ai_task.cancel(); self.ai_task = None
                     self.ai_task = asyncio.create_task(self.run_ai(self.game, agent_name))
-                    # ... (message send logic omitted for brevity)
-            
-            # Handle restart requests
+                    
             elif data.get("type") == "restart":
                 if self.ai_task: self.ai_task.cancel(); self.ai_task = None
                 
-                # RESTART: Use the unique game_key to reset the correct game instance
+                # RESTART: Use the unique user-based game_key to reset the correct game instance
                 active_games[self.game_key] = Game2048() 
                 self.game = active_games[self.game_key]
                 
@@ -150,5 +139,3 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             "type": "update", "board": event["board"], "score": event["score"], "over": event["over"]
         }))
-
-# Save this file as your game/consumers.py
