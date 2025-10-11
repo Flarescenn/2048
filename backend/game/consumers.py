@@ -61,7 +61,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             print(">>> WebSocket Connection Attempt <<<")
             print("="*50)
             
-            # 1. GET USER INFO
+            # 1. GET USER INFO - We need to check multiple sources
             user = self.scope.get("user", None)
             session = self.scope.get("session", None)
             
@@ -71,6 +71,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                 print(f"Host header: {headers[b'host'].decode()}")
             if b'origin' in headers:
                 print(f"Origin header: {headers[b'origin'].decode()}")
+            if b'cookie' in headers:
+                print(f"Cookie header found: {len(headers[b'cookie'])} bytes")
             if b'sec-websocket-version' in headers:
                 print(f"WebSocket version: {headers[b'sec-websocket-version'].decode()}")
             
@@ -86,18 +88,49 @@ class GameConsumer(AsyncWebsocketConsumer):
                         query_params[key] = value
             
             # More detailed logging
-            print(f"User: {user}")
-            print(f"Is anonymous: {user.is_anonymous if user else 'No user'}")
+            print(f"User from scope: {user}")
+            print(f"Is anonymous from scope: {user.is_anonymous if user else 'No user'}")
+            
+            # Try to get authentication from Django's session
+            authenticated_username = None
+            
+            # First check Django scope
+            if not (user and user.is_anonymous) and user:
+                authenticated_username = user.username
+                print(f"Found authenticated user in scope: {authenticated_username}")
+                
+            # Then try session object directly
+            elif session:
+                session_dict = session.get_decoded() if hasattr(session, 'get_decoded') else {}
+                if '_auth_user_id' in session_dict:
+                    # We have an authenticated user in the session!
+                    from django.contrib.auth import get_user_model
+                    User = get_user_model()
+                    try:
+                        user_id = session_dict.get('_auth_user_id')
+                        if user_id:
+                            auth_user = User.objects.get(pk=user_id)
+                            authenticated_username = auth_user.username
+                            print(f"Found authenticated user in session: {authenticated_username}")
+                            # Update the user in scope for other middleware
+                            user = auth_user
+                    except Exception as e:
+                        print(f"Error getting user from session: {e}")
+            
             print(f"Session: {session}")
             print(f"Session key: {session.session_key if session else 'No session key'}")
             print(f"Query params: {query_params}")
+            print(f"Final authenticated username: {authenticated_username}")
             
             # We'll accept ALL connections now, with or without session
             # This is a game, so we can be more lenient
             
             # 2. Generate a game key based on user, session, query param, or channel name
-            if user and not user.is_anonymous:
-                # For authenticated users, use their ID
+            if authenticated_username:
+                # For authenticated users, use their username directly
+                print(f"Using authenticated username for game key: {authenticated_username}")
+                self.game_key = f"user_{authenticated_username}"
+            elif user and not user.is_anonymous:
                 user_id = str(user.pk)
                 self.game_key = f"user_{user_id}"
             elif 'session' in query_params and query_params['session'] != 'anonymous':
@@ -141,15 +174,23 @@ class GameConsumer(AsyncWebsocketConsumer):
                 print(f"Error adding to group: {str(e)}")
                 print("Continuing without group messaging support")
             
-            # 6. Send initial game state
+            # 6. Send initial game state with username if authenticated
             try:
+                # Extract username from game_key if available
+                username = None
+                if self.game_key and self.game_key.startswith("user_"):
+                    username = self.game_key[5:]  # Remove the "user_" prefix
+                
                 await self.send(text_data=json.dumps({
                     "type": "init",
                     "board": self.game.board,
                     "score": self.game.score,
-                    "over": self.game.over
+                    "over": self.game.over,
+                    "username": username  # Will be null for anonymous users
                 }))
                 print(f"Sent initial game state for {self.game_key}")
+                if username:
+                    print(f"Included username in response: {username}")
             except Exception as e:
                 print(f"Failed to send initial game state: {str(e)}")
                 raise  # Re-raise to properly close the connection
@@ -214,10 +255,15 @@ class GameConsumer(AsyncWebsocketConsumer):
                     
                     if moved:
                         try:
+                            # Extract username from game_key if available
+                            username = None
+                            if self.game_key and self.game_key.startswith("user_"):
+                                username = self.game_key[5:]  # Remove the "user_" prefix
+                                
                             if hasattr(self, 'channel_layer'):
                                 await self.channel_layer.group_send(
                                     self.group_name,
-                                    {"type": "broadcast_state", "board": self.game.board, "score": self.game.score, "over": self.game.over}
+                                    {"type": "broadcast_state", "board": self.game.board, "score": self.game.score, "over": self.game.over, "username": username}
                                 )
                             else:
                                 # Fallback to direct send if no channel layer
@@ -225,7 +271,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                                     "type": "update",
                                     "board": self.game.board,
                                     "score": self.game.score,
-                                    "over": self.game.over
+                                    "over": self.game.over,
+                                    "username": username
                                 }))
                         except Exception as e:
                             print(f"Error sending move update: {str(e)}")
@@ -262,10 +309,15 @@ class GameConsumer(AsyncWebsocketConsumer):
                 print(f"Game restarted for {self.game_key}")
                 
                 try:
+                    # Extract username from game_key if available
+                    username = None
+                    if self.game_key and self.game_key.startswith("user_"):
+                        username = self.game_key[5:]  # Remove the "user_" prefix
+                        
                     if hasattr(self, 'channel_layer'):
                         await self.channel_layer.group_send(
                             self.group_name,
-                            {"type": "broadcast_state", "board": self.game.board, "score": self.game.score, "over": self.game.over}
+                            {"type": "broadcast_state", "board": self.game.board, "score": self.game.score, "over": self.game.over, "username": username}
                         )
                     else:
                         # Fallback to direct send if no channel layer
@@ -273,7 +325,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                             "type": "update",
                             "board": self.game.board,
                             "score": self.game.score,
-                            "over": self.game.over
+                            "over": self.game.over,
+                            "username": username
                         }))
                 except Exception as e:
                     print(f"Error sending restart update: {str(e)}")
@@ -299,8 +352,18 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     async def broadcast_state(self, event):
         try:
+            # Extract username from game_key if available
+            username = None
+            if self.game_key and self.game_key.startswith("user_"):
+                username = self.game_key[5:]  # Remove the "user_" prefix
+            
+            # Add username to the update message
             await self.send(text_data=json.dumps({
-                "type": "update", "board": event["board"], "score": event["score"], "over": event["over"]
+                "type": "update", 
+                "board": event["board"], 
+                "score": event["score"], 
+                "over": event["over"],
+                "username": username  # Will be null for anonymous users
             }))
         except Exception as e:
             print(f"Error in broadcast_state: {str(e)}")

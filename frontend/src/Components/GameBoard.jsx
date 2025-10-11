@@ -27,6 +27,7 @@ export default function GameBoard({ onScoreUpdate }){
     const wsRef = useRef(null);
     const [wsOpen, setWsOpen] = useState(false);
     const [models, setModels] = useState([]);
+    const [username, setUsername] = useState(null);
     
     // 🎯 FIX 1: Ref to hold the current game state/status for the event listener
     const gameStateRef = useRef({ wsOpen: false, over: false }); 
@@ -190,6 +191,12 @@ export default function GameBoard({ onScoreUpdate }){
                             setScore(data.score);
                             setOver(data.over);
                             
+                            // Handle username if present
+                            if (data.username) {
+                                setUsername(data.username);
+                                console.log("Authenticated username received:", data.username);
+                            }
+                            
                             if (onScoreUpdate) {
                                 onScoreUpdate(data.score);
                             }
@@ -199,7 +206,8 @@ export default function GameBoard({ onScoreUpdate }){
                                 console.log("Game state updated:", { 
                                     board: data.board,
                                     score: data.score, 
-                                    over: data.over
+                                    over: data.over,
+                                    username: data.username
                                 });
                             }
                         } else if (data.type === "error") {
@@ -292,7 +300,14 @@ export default function GameBoard({ onScoreUpdate }){
 
     return (
         <div className="bg-white shadow-xl rounded-xl p-6 border-t-4 border-blue-500">
-            <h2 className="text-xl font-bold mb-4 text-gray-800">2048 Game Board</h2>
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-800">2048 Game Board</h2>
+                {username && (
+                    <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+                        Welcome, {username}!
+                    </div>
+                )}
+            </div>
             
             {over && 
                 <div className="p-4 bg-red-100 border border-red-400 text-red-700 rounded mb-4 text-center">
@@ -348,6 +363,12 @@ export default function GameBoard({ onScoreUpdate }){
                                                     setBoard(data.board);
                                                     setScore(data.score);
                                                     setOver(data.over);
+                                                    
+                                                    // Handle username if present
+                                                    if (data.username) {
+                                                        setUsername(data.username);
+                                                        console.log("Authenticated username received:", data.username);
+                                                    }
                                                     
                                                     if (onScoreUpdate) {
                                                         onScoreUpdate(data.score);
