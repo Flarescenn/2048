@@ -1,0 +1,58 @@
+# Node/React (Frontend/Backend)
+# -----------------------------
+# Dependency directory
+/node_modules
+
+# Build/Output directories
+/build
+/dist
+/out
+/coverage
+/tmp
+
+# Log files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+.local
+
+# IDE/Editor specific files (common)
+.vscode/
+.idea/
+*.swp
+*.bak
+*.swo
+
+# macOS / Windows special files
+.DS_Store
+Thumbs.db
+
+# Django (Backend)
+# ----------------
+# Python virtual environments (if not inside the project, adjust if needed)
+# It's generally better to ignore the standard locations
+venv/
+.venv/
+env/
+.env/
+
+# Byte-compiled / optimized / test / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django specific
+/media  # User-uploaded files
+/static_root # Collected static files
+/staticfiles # Alias for the above, use one or the other
+db.sqlite3 # Default SQLite database file
+
+# Private settings file (e.g., if you store secrets here)
+# BE CAREFUL: Only ignore if you handle settings securely outside of version control.
+# e.g., myapp/local_settings.py

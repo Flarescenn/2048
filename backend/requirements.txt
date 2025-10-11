@@ -1,0 +1,11 @@
+Django==4.2.*
+djangorestframework
+djangorestframework-simplejwt
+channels==4.*
+channels-redis
+psycopg2-binary
+django-environ
+uvicorn
+daphne
+python-dotenv
+django-cors-headers
