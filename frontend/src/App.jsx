@@ -19,6 +19,14 @@ export default function App() {
     const authStateRef = useRef({ authenticated: false, username: null });
     const GAME_ENDPOINT_ID = "game_instance"; 
 
+    const gameBoardRef = useRef(null);
+
+    // 2. Define the handler function for the assist feature
+    const handleStartAssist = (agentName, moves) => {
+        if (gameBoardRef.current) {
+            gameBoardRef.current.startAssist(agentName, moves);
+        }
+    };
     useEffect(() => {
         console.log("App.jsx: Setting up authentication monitoring (should see this ONCE)");
         
@@ -207,6 +215,7 @@ export default function App() {
                             <div className="col-span-7 flex flex-col gap-4">
                                 <div className="flex-1">
                                     <GameBoard 
+                                        ref={gameBoardRef}
                                         gameId={GAME_ENDPOINT_ID} 
                                         onScoreUpdate={handleScoreUpdate}
                                     />
@@ -217,7 +226,7 @@ export default function App() {
                             </div>
                             
                             <div className="col-span-2">
-                                <AIList onStartAI={() => {}} />
+                                <AIList onStartAssist = {handleStartAssist} />
                             </div>
                             
                             <div className="col-span-3">

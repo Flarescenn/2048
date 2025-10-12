@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { fetchAIModels, ensureSession, getCurrentUser, completeGame } from "../api/api.js";
 
 const getTileColor = (value) => {
@@ -30,7 +30,9 @@ const getTileColor = (value) => {
     }
 }
 
-export default function GameBoard({ onScoreUpdate }) {
+const GameBoard = forwardRef((props, ref) => {
+    const { onScoreUpdate } = props;
+
     const [board, setBoard] = useState(Array(4).fill(null).map(() => Array(4).fill(0)))
     const [score, setScore] = useState(0)
     const [over, setOver] = useState(false)
@@ -46,6 +48,16 @@ export default function GameBoard({ onScoreUpdate }) {
     const [isInReplayMode, setIsInReplayMode] = useState(false);
     const [replayHistory, setReplayHistory] = useState([]);
     const [replayIndex, setReplayIndex] = useState(0);
+
+    useImperativeHandle(ref, () => ({
+        startAssist(agentName, moves) {
+            sendMessage({
+                type: 'ai_assist',
+                agent: agentName.toLowerCase(),
+                params: { moves: moves }
+            });
+        }
+    }));
     
     const gameStateRef = useRef({ wsOpen: false, over: false });
     const reconnectFnRef = useRef(null);
@@ -209,6 +221,7 @@ useEffect(() => {
                         const data = JSON.parse(event.data);
                         
                         if (data.type === "init" || data.type === "update") {
+                            setIsInReplayMode(false);
                             setBoard(data.board);
                             setScore(data.score);
                             setOver(data.over);
@@ -219,6 +232,16 @@ useEffect(() => {
                             
                             if (onScoreUpdate) {
                                 onScoreUpdate(data.score);
+                            }
+                        }
+                        else if (data.type === "ai_assist_result") {
+                            console.log("AI Assist result received. Entering replay mode.");
+                            if (data.history && data.history.length > 0) {
+                                setIsInReplayMode(true);
+                                setReplayHistory(data.history);
+                                setReplayIndex(0);
+                            } else {
+                                console.log("AI Assist made no valid moves.");
                             }
                         }
                     } catch (err) {
@@ -346,6 +369,49 @@ useEffect(() => {
         }
     };
 
+    const handleReplayNext = () => {
+        setReplayIndex(prev => Math.min(prev + 1, replayHistory.length - 1));
+    };
+
+    const handleReplayPrev = () => {
+        setReplayIndex(prev => Math.max(0, prev - 1));
+    };
+
+    const handleAcceptAssist = () => {
+        if (replayHistory.length === 0) return;
+
+        // Get the final state from the last move in the history
+        const finalState = replayHistory[replayHistory.length - 1];
+
+        console.log("Accepting AI moves. Updating main board and syncing.");
+
+        // 1. Update the main game state
+        setBoard(finalState.board);
+        setScore(finalState.score);
+        // We also need to check if the game ended
+        // Let's get that from the original message payload.
+        // For simplicity, we assume the backend `run_ai_assist` sends the final `over` state.
+        // Let's assume the final state object has `over` property.
+        // A small modification in backend might be needed to include `over` in each history step.
+        // For now, let's just update board and score.
+
+        // 2. Exit replay mode
+        setIsInReplayMode(false);
+
+        // 3. CRITICAL: Sync the final state with the server
+        sendMessage({
+            type: 'sync_state',
+            board: finalState.board,
+            score: finalState.score,
+            over: finalState.over // Assuming 'over' is part of the final state object.
+        });
+    };
+
+    // --- DETERMINE WHAT TO DISPLAY ---
+    const displayBoard = isInReplayMode ? (replayHistory[replayIndex]?.board || []) : board;
+    const displayScore = isInReplayMode ? replayHistory[replayIndex]?.score : score;
+    const currentMoveInfo = isInReplayMode ? replayHistory[replayIndex] : null;
+
     return (
         <div className="bg-white shadow-xl rounded-xl p-6 border-t-4 border-blue-500">
             <div className="flex justify-between items-center mb-4">
@@ -357,6 +423,18 @@ useEffect(() => {
                 )}
             </div>
             
+            {isInReplayMode && (
+                <div className="p-4 bg-purple-100 border border-purple-300 text-purple-800 rounded mb-4 text-center">
+                    <h3 className="font-bold">AI Assist: Move {replayIndex + 1} of {replayHistory.length}</h3>
+                    <p>Move made: <strong className="uppercase">{currentMoveInfo?.move}</strong></p>
+                    <div className="flex justify-center items-center space-x-2 mt-2">
+                        <button onClick={handleReplayPrev} disabled={replayIndex === 0} className="px-4 py-2 bg-purple-500 text-white rounded disabled:opacity-50">Prev</button>
+                        <button onClick={handleReplayNext} disabled={replayIndex >= replayHistory.length - 1} className="px-4 py-2 bg-purple-500 text-white rounded disabled:opacity-50">Next</button>
+                        <button onClick={handleAcceptAssist} className="px-4 py-2 bg-green-600 text-white rounded">Accept & Continue</button>
+                    </div>
+                </div>
+            )}
+
             {over && 
                 <div className="p-4 bg-red-100 border border-red-400 text-red-700 rounded mb-4 text-center">
                     <h3 className="text-2xl font-extrabold">Game Over!</h3>
@@ -391,7 +469,7 @@ useEffect(() => {
             </div>
             
             <div className="grid grid-cols-4 gap-2 w-full max-w-sm mx-auto p-2 bg-gray-400 rounded-lg shadow-inner">
-                {board.flat().map((cell, idx) => {
+                {displayBoard.flat().map((cell, idx) => {
                     const isMegaTile = cell >= 4096;
                     const fontSize = cell >= 8192 ? 'text-xl' : cell >= 1024 ? 'text-2xl' : 'text-2xl';
                     
@@ -418,4 +496,5 @@ useEffect(() => {
             </div>
         </div>
     )
-}
+});
+export default GameBoard;

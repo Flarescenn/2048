@@ -2,12 +2,20 @@ import { useEffect, useState } from "react";
 // 🎯 CRITICAL FIX: Ensure the function name is correct
 import { fetchAIModels, purchaseAI } from "../api/api"; 
 
-export default function AIList({ onStartAI }) {
+export function startAI(agentName) {
+    sendMessage({
+        type: 'ai',
+        agent: agentName.toLowerCase()
+    });
+}
+
+export default function AIList({ onStartAssist }) {
     const [aiModels, setAiModels] = useState([]);
     // Use a specific status for an ongoing unlock/purchase, separate from general list loading
     const [isProcessing, setIsProcessing] = useState(false); 
     const [listLoading, setListLoading] = useState(true);
     const [statusMessage, setStatusMessage] = useState(null);
+    const [moveCounts, setMoveCounts] = useState({});
 
     // --- Data Fetching Effect ---
     const loadAIModels = async () => {
@@ -47,6 +55,10 @@ export default function AIList({ onStartAI }) {
         setIsProcessing(false);
     };
 
+    const handleMoveCountChange = (aiId, value) => {
+        const count = Math.max(1, parseInt(value, 10) || 1); // Ensure it's at least 1
+        setMoveCounts(prev => ({ ...prev, [aiId]: count }));
+    };
     // --- Rendering Logic ---
 
     const StatusDisplay = () => {
@@ -93,13 +105,24 @@ export default function AIList({ onStartAI }) {
                         
                         <div className="flex justify-end space-x-2">
                             {/* Play Button */}
+                            <div className="flex items-center">
+                                <label htmlFor={`moves-${ai.id}`} className="text-sm mr-2">Moves:</label>
+                                <input
+                                    type="number"
+                                    id={`moves-${ai.id}`}
+                                    value={moveCounts[ai.id] || 1}
+                                    onChange={(e) => handleMoveCountChange(ai.id, e.target.value)}
+                                    className="w-16 p-1 border border-gray-300 rounded text-center"
+                                    disabled={!ai.unlocked || isBusy}
+                                />
+                            </div>
                             <button 
-                                onClick={() => onStartAI(ai.name)}
+                                // Call onStartAssist with the AI name and the move count
+                                onClick={() => onStartAssist(ai.name, moveCounts[ai.id] || 1)}
                                 disabled={!ai.unlocked || isBusy} 
-                                className={`px-4 py-2 rounded-lg font-semibold transition duration-300 shadow-md 
-                                    ${ai.unlocked ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
+                                className={`...`}
                             >
-                                {ai.unlocked ? 'Start Game' : 'Locked'}
+                                Assist
                             </button>
                             
                             {/* Unlock Button */}
