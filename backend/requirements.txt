@@ -9,3 +9,4 @@ uvicorn
 daphne
 python-dotenv
 django-cors-headers
+asyncio 

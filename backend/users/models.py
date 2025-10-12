@@ -1,14 +1,46 @@
-# users/models.py
+# users/models.py - REPLACE ENTIRE FILE
 
 from django.db import models
-from django.contrib.auth.models import User # <-- Import the User model
+from django.contrib.auth.models import User
 
 class Profile(models.Model):
-    # One-to-one relationship ensures every User has exactly one Profile
+    """Extended user profile with points and statistics"""
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     
-    # This is the field accessed by game/views.py
-    points = models.IntegerField(default=100) # Give new users a starting balance
+    # Points system
+    points = models.IntegerField(default=100)  # Starting balance
+    lifetime_points = models.IntegerField(default=0)  # Total points ever earned
+    
+    # Game statistics
+    games_played = models.IntegerField(default=0)
+    high_score = models.IntegerField(default=0)
+    total_score = models.IntegerField(default=0)  # Sum of all game scores
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.user.username}'s Profile"
+    
+    @property
+    def average_score(self):
+        """Calculate average score across all games"""
+        if self.games_played == 0:
+            return 0
+        return self.total_score // self.games_played
+    
+    def add_game_score(self, score):
+        """Update stats when a game is completed"""
+        self.games_played += 1
+        self.total_score += score
+        if score > self.high_score:
+            self.high_score = score
+        
+        # Award points (1:1 ratio - you can adjust this)
+        points_earned = score
+        self.points += points_earned
+        self.lifetime_points += points_earned
+        
+        self.save()
+        return points_earned

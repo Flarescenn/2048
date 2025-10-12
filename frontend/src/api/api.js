@@ -236,3 +236,74 @@ export const getCurrentUser = async () => {
         return null;
     }
 }
+
+export const completeGame = async (score, boardState, mode = 'manual', aiModelId = null) => {
+    try {
+        console.log('Completing game:', { score, mode });
+        const res = await axios.post(
+            `${API_BASE}/complete-game/`,
+            {
+                score,
+                board_state: boardState,
+                mode,
+                ai_model_id: aiModelId
+            },
+            { withCredentials: true }
+        );
+        console.log('Game completed successfully:', res.data);
+        return {
+            success: true,
+            data: res.data
+        };
+    } catch (error) {
+        console.error('Error completing game:', error);
+        return {
+            success: false,
+            error: error.response?.data?.error || error.message
+        };
+    }
+};
+
+/**
+ * Get current user's statistics
+ */
+export const getUserStats = async () => {
+    try {
+        const res = await axios.get(`${API_BASE}/user-stats/`, { 
+            withCredentials: true 
+        });
+        return {
+            success: true,
+            data: res.data
+        };
+    } catch (error) {
+        console.error('Error fetching user stats:', error);
+        return {
+            success: false,
+            error: error.response?.data?.error || error.message
+        };
+    }
+};
+
+/**
+ * Get leaderboard with sorting options
+ * @param {string} sortBy - 'high_score' or 'points'
+ * @param {number} limit - Number of entries to return
+ */
+export const getLeaderboard = async (sortBy = 'high_score', limit = 10) => {
+    try {
+        const res = await axios.get(`${API_BASE}/leaderboard/`, {
+            params: { sort_by: sortBy, limit }
+        });
+        return {
+            success: true,
+            data: res.data.data
+        };
+    } catch (error) {
+        console.error('Error fetching leaderboard:', error);
+        return {
+            success: false,
+            error: error.response?.data?.error || error.message
+        };
+    }
+};
