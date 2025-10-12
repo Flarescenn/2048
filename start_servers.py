@@ -7,7 +7,7 @@ import os
 import time
 import webbrowser
 from threading import Thread
-
+import psutil
 # Project paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND_DIR = os.path.join(BASE_DIR, 'backend')
@@ -48,6 +48,28 @@ def run_backend():
     except KeyboardInterrupt:
         backend_process.terminate()
         print("\nBackend server stopped")
+        
+# --- NEW: Function to kill processes using a specific port ---
+def kill_process_on_port(port):
+    """Finds and terminates any process listening on the given port."""
+    print(f"\nChecking for processes on port {port}...")
+    for conn in psutil.net_connections():
+        if conn.laddr.port == port and conn.status == psutil.CONN_LISTEN:
+            try:
+                proc = psutil.Process(conn.pid)
+                print(f"  > Found process '{proc.name()}' (PID: {proc.pid}) using port {port}.")
+                print(f"  > Terminating process...")
+                proc.kill()
+                proc.wait(timeout=3) # Wait for the process to terminate
+                print(f"  > Process terminated successfully.")
+            except psutil.NoSuchProcess:
+                print(f"  > Process on port {port} already terminated.")
+            except psutil.AccessDenied:
+                print(f"  > ERROR: Access denied to terminate process on port {port}. Try running as administrator/sudo.")
+            except psutil.TimeoutExpired:
+                print(f"  > WARNING: Process on port {port} did not terminate in time.")
+            return # Assume only one process per port
+    print(f"  > Port {port} is clear.")
 
 def run_frontend():
     print("\n" + "="*50)

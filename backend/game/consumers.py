@@ -92,53 +92,42 @@ class GameConsumer(AsyncWebsocketConsumer):
             traceback.print_exc()
             return None
 
-    async def run_ai(self, game, agent_name):
+    async def run_ai(self, game, agent_name, params):
         agent_cls = AGENTS.get(agent_name.lower())
         if not agent_cls:
             return
 
-        agent = agent_cls()
-        replay_history = []
+        agent = agent_cls(params)
+        move_history = []
+        num_moves = params.get('moves', 1)
 
         import copy
         temp_game = copy.deepcopy(game)
 
-        # Add initial state
-        replay_history.append({
-            "move": "Initial",
-            "board": [row[:] for row in temp_game.board],
-            "score": temp_game.score
-        })
+        for _ in range(num_moves):
+            if temp_game.over:
+                break # Stop if game ends
 
-        try:
-            while not game.over:
-                # await asyncio.sleep(0.3)
-                # Run the game loop without any sleep
-                move = agent.get_move(game.board)
-                moved = game.move(move)
+            move = agent.get_move(temp_game.board)
+            moved = temp_game.move(move)
 
-                if moved:
-                    # Capture the state AFTER the move
-                    replay_history.append({
-                        "move": move,
-                        "board": [row[:] for row in temp_game.board],
-                        "score": temp_game.score
-                    })
+            if moved:
+                move_history.append({
+                    "move": move,
+                    "board": [row[:] for row in temp_game.board],
+                    "score": temp_game.score
+                })
             
-            print(f"AI ({agent_name}) finished game. Captured {len(replay_history)} states.")
+        print(f"AI ({agent_name}) finished game. Captured {len(move_history)} states.")
 
-        except asyncio.CancelledError:
-            print("AI task cancelled!")
-            pass
-        finally:
-            # Send the moveset to the client in one go
-            await self.send(text_data=json.dumps({
-                "type": "ai_replay",
-                "replay": replay_history,
-                "final_score": temp_game.score,
-                "agent": agent_name
-            }))
-            self.ai_task = None
+        await self.send(text_data=json.dumps({
+            "type": "ai_assist_result",
+            "history": move_history,
+            "final_board": temp_game.board,
+            "final_score": temp_game.score,
+            "final_over": temp_game.over
+        }))
+        self.ai_task = None
 
     async def connect(self):
         try:
@@ -373,18 +362,27 @@ class GameConsumer(AsyncWebsocketConsumer):
                                 "username": self.authenticated_username
                             }))
                         
-            elif data.get("type") == "ai":
+            elif data.get("type") == "ai_assist":
                 agent_name = data.get("agent")
+                params = data.get("params", {})
                 if agent_name:
                     if self.ai_task: 
                         self.ai_task.cancel()
-                    self.ai_task = asyncio.create_task(self.run_ai(self.game, agent_name))
+                    self.ai_task = asyncio.create_task(self.run_ai_assist(self.game, agent_name, params))
+            
+            elif data.get("type") == "sync_state":
+                # This updates the server's official game state after an AI assist.
+                if self.game:
+                    self.game.board = data.get("board", self.game.board)
+                    self.game.score = data.get("score", self.game.score)
+                    self.game.over = data.get("over", self.game.over)
+                    print(f"Game state synced for {self.game_key}")
+                    
                     
             elif data.get("type") == "restart":
                 if self.ai_task: 
                     self.ai_task.cancel()
                     self.ai_task = None
-                
                 # Create new game
                 active_games[self.game_key] = Game2048() 
                 self.game = active_games[self.game_key]
