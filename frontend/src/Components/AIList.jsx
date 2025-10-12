@@ -63,7 +63,7 @@ export default function AIList({ onStartAI }) {
     return (
         <div className="bg-white shadow-xl rounded-xl p-6 border-t-4 border-purple-500 min-h-full">
             <h3 className="text-2xl font-bold mb-4 text-gray-800 flex items-center">
-                🤖 AI Competitors
+               AI Competitors
             </h3>
             
             {/* Display general loading state while fetching list */}

@@ -20,6 +20,7 @@ export default function Leaderboard() {
 
             if (result.success) {
                 console.log("Leaderboard data loaded successfully:", result.data);
+                console.log("Leaderboard entries:", JSON.stringify(result.data, null, 2));
                 setLeaders(result.data);
             } else {
                 console.error("Failed to load leaderboard:", result.error);
@@ -38,7 +39,6 @@ export default function Leaderboard() {
         console.log("Leaderboard: Setting up (should see this ONCE)");
         loadLeaderboard();
         
-        // Listen for game completion to refresh leaderboard
         const handleGameCompleted = () => {
             console.log("Game completed - refreshing leaderboard");
             setRefreshing(true);
@@ -47,12 +47,11 @@ export default function Leaderboard() {
         
         window.addEventListener('game-completed', handleGameCompleted);
         
-        // Auto-refresh every 60 seconds
         const intervalId = setInterval(() => {
             console.log("Leaderboard: Auto-refresh triggered");
             setRefreshing(true);
             loadLeaderboard();
-        }, 60000);
+        }, 120000);
         
         return () => {
             console.log("Leaderboard: Cleanup");
@@ -66,97 +65,136 @@ export default function Leaderboard() {
         loadLeaderboard();
     };
 
-    // --- Conditional Rendering ---
     const renderContent = () => {
         if (loading && !refreshing) {
             return (
-                <div className="flex items-center justify-center p-4">
-                    <svg className="animate-spin h-5 w-5 mr-3 text-blue-500" viewBox="0 0 24 24">
+                <div className="flex items-center justify-center p-8 text-gray-400">
+                    <svg className="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    <span>Loading leaderboard...</span>
+                    <span>Loading...</span>
                 </div>
             );
         }
 
         if (error) {
             return (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4">
+                <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg">
                     <strong className="font-bold">Error: </strong>
-                    <span className="block sm:inline">{error}</span>
+                    <span>{error}</span>
                 </div>
             );
         }
         
         if (leaders.length === 0) {
             return (
-                <div className="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded relative mb-4">
-                    <span className="block sm:inline">No games recorded yet. Play to be first on the leaderboard!</span>
+                <div className="bg-blue-500/10 border border-blue-500/30 text-blue-400 px-4 py-3 rounded-lg text-center">
+                    <span>No games yet. Be the first!</span>
                 </div>
             );
         }
 
+        const getRankIcon = (rank) => {
+            if (rank === 1) return '🥇';
+            if (rank === 2) return '🥈';
+            if (rank === 3) return '🥉';
+            return null;
+        };
+
         return (
-            <div className="overflow-hidden">
-                <table className="min-w-full bg-white">
-                    <thead>
-                        <tr className="bg-gray-100 text-gray-700 text-left">
-                            <th className="py-2 px-3 w-8">#</th>
-                            <th className="py-2 px-3">Player</th>
-                            <th className="py-2 px-3 text-right">Score</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {leaders.map((game, idx) => (
-                            <tr 
-                                key={idx} 
-                                className={`${idx === 0 ? 'bg-yellow-50' : idx === 1 ? 'bg-gray-50' : idx === 2 ? 'bg-orange-50' : ''} 
-                                         border-b hover:bg-gray-50 transition-colors`}
-                            >
-                                <td className="py-2 px-3 font-bold text-gray-700">{game.rank || idx + 1}</td>
-                                <td className="py-2 px-3 font-medium">
-                                    {game.user}
-                                    {game.games_played && (
-                                        <span className="ml-2 text-xs text-gray-500">
-                                            ({game.games_played} games)
-                                        </span>
-                                    )}
-                                </td>
-                                <td className="py-2 px-3 text-right font-bold">
-                                    {game.high_score || game.score}
+            <div className="space-y-2">
+                {leaders.map((game, idx) => {
+                    const rank = game.rank || idx + 1;
+                    const isTop3 = rank <= 3;
+                    
+                    return (
+                        <div 
+                            key={idx} 
+                            className={`p-3 rounded-lg transition-all ${
+                                rank === 1 
+                                    ? 'bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-500/30' 
+                                    : rank === 2
+                                    ? 'bg-gradient-to-r from-slate-400/20 to-gray-400/20 border border-slate-400/30'
+                                    : rank === 3
+                                    ? 'bg-gradient-to-r from-orange-500/20 to-amber-600/20 border border-orange-500/30'
+                                    : 'bg-slate-800/40 border border-slate-700/50 hover:bg-slate-800/60'
+                            }`}
+                        >
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                    <div className={`flex-shrink-0 w-8 text-center font-bold ${
+                                        isTop3 ? 'text-xl' : 'text-gray-400'
+                                    }`}>
+                                        {getRankIcon(rank) || `#${rank}`}
+                                    </div>
+                                    
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-semibold text-gray-200 truncate">
+                                            {game.user}
+                                        </div>
+                                        {game.games_played && (
+                                            <div className="text-xs text-gray-500">
+                                                {game.games_played} games
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                <div className="text-right flex-shrink-0">
+                                    <div className={`font-bold text-lg ${
+                                        rank === 1 ? 'text-yellow-400' :
+                                        rank === 2 ? 'text-slate-300' :
+                                        rank === 3 ? 'text-orange-400' :
+                                        'text-blue-400'
+                                    }`}>
+                                        {game.high_score?.toLocaleString() || 0}
+                                    </div>
                                     {game.points && (
-                                        <div className="text-xs text-blue-600">{game.points} pts</div>
+                                        <div className="text-xs text-gray-500">
+                                            {game.points} pts
+                                        </div>
                                     )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
         );
     };
 
     return (
-        <div className="bg-white shadow-xl rounded-xl p-6 border-t-4 border-blue-500">
+        <div className="bg-slate-800/40 backdrop-blur-sm rounded-xl p-5 border border-slate-700/50 h-full flex flex-col">
             <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold text-gray-800">Top Scores</h3>
+                <h3 className="text-lg font-bold text-gray-200">Top Players</h3>
                 <button 
                     onClick={handleManualRefresh}
-                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center disabled:opacity-50"
+                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 disabled:opacity-50 transition-all"
                     disabled={loading || refreshing}
                 >
-                    {refreshing ? 'Refreshing...' : 'Refresh'}
-                    {refreshing && (
-                        <svg className="animate-spin ml-1 h-4 w-4" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
+                    {refreshing ? (
+                        <>
+                            <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Refreshing</span>
+                        </>
+                    ) : (
+                        <>
+                            <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            <span>Refresh</span>
+                        </>
                     )}
                 </button>
             </div>
             
-            {renderContent()}
+            <div className="flex-1 overflow-y-auto">
+                {renderContent()}
+            </div>
         </div>
     );
 }
