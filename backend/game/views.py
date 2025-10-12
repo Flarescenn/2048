@@ -168,28 +168,56 @@ class RecordGameView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # ----------------------------------------------------------------------
-# 4. LeaderboardView
+# 4. LeaderboardView (UPDATED for Profile-based stats)
 # ----------------------------------------------------------------------
 
 class LeaderboardView(APIView):
-    """
-    Retrieves the top N games for the public leaderboard.
-    """
+    """Get top players by high score or total points."""
     permission_classes = [permissions.AllowAny]
-
+    
     def get(self, request):
-        # Allow client to request a custom limit, default to 10
+        from users.models import Profile
+        
+        sort_by = request.query_params.get('sort_by', 'high_score')
         limit = request.query_params.get('limit', 10)
+        
         try:
-            limit = min(int(limit), 50) # Cap the limit at a reasonable number (e.g., 50)
+            limit = min(int(limit), 50)
         except ValueError:
             limit = 10
-            
-        top_games = Game.objects.order_by('-score')[:limit]
-        serializer = GameSerializer(top_games, many=True)
         
-        return Response(serializer.data, status=status.HTTP_200_OK)
-    
+        if sort_by == 'points':
+            # Leaderboard by total points
+            top_profiles = Profile.objects.select_related('user').order_by('-points')[:limit]
+            leaderboard = [
+                {
+                    'rank': idx + 1,
+                    'user': profile.user.username,
+                    'points': profile.points,
+                    'high_score': profile.high_score,
+                    'games_played': profile.games_played
+                }
+                for idx, profile in enumerate(top_profiles)
+            ]
+        else:
+            # Leaderboard by high score (default)
+            top_profiles = Profile.objects.select_related('user').order_by('-high_score')[:limit]
+            leaderboard = [
+                {
+                    'rank': idx + 1,
+                    'user': profile.user.username,
+                    'high_score': profile.high_score,
+                    'score': profile.high_score,  # For compatibility with old frontend
+                    'points': profile.points,
+                    'games_played': profile.games_played
+                }
+                for idx, profile in enumerate(top_profiles)
+            ]
+        
+        return Response({
+            "success": True,
+            "data": leaderboard
+        }, status=status.HTTP_200_OK)
 # ----------------------------------------------------------------------
 # 5. LogoutView (CRITICAL FIX FOR PERSISTENT SESSION TOKEN)
 # ----------------------------------------------------------------------
@@ -231,3 +259,107 @@ class LogoutView(APIView):
         )
         
         return response
+# game/views.py - ADD THESE TO YOUR EXISTING FILE (keep all your existing views)
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from django.db import transaction
+from .models import Game
+from users.models import Profile
+
+
+class CompleteGameView(APIView):
+    """
+    Save a completed game and award points to the user.
+    Called when the game ends (game over).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request):
+        user = request.user
+        score = request.data.get('score')
+        mode = request.data.get('mode', 'manual')
+        ai_model_id = request.data.get('ai_model_id')
+        board_state = request.data.get('board_state', [])
+        
+        if score is None or score < 0:
+            return Response(
+                {"error": "Valid score is required"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            profile, created = Profile.objects.get_or_create(user=user)
+            
+            game = Game.objects.create(
+                user=user,
+                score=score,
+                mode=mode,
+                ai_model_id=ai_model_id if ai_model_id else None,
+                replay_json={'board': board_state}
+            )
+            
+            points_earned = profile.add_game_score(score)
+            
+            print(f"✓ Game completed for {user.username}: score={score}, points_earned={points_earned}")
+            
+            return Response({
+                "success": True,
+                "message": f"Game saved! Earned {points_earned} points.",
+                "points_earned": points_earned,
+                "new_total_points": profile.points,
+                "games_played": profile.games_played,
+                "high_score": profile.high_score,
+                "game_id": game.id
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            print(f"❌ Error completing game: {e}")
+            return Response(
+                {"error": f"Failed to save game: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class UserStatsView(APIView):
+    """Get current user's statistics and points."""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        user = request.user
+        
+        try:
+            profile = Profile.objects.get(user=user)
+            recent_games = Game.objects.filter(user=user).order_by('-created_at')[:5]
+            recent_games_data = [
+                {
+                    'score': game.score,
+                    'mode': game.mode,
+                    'date': game.created_at.isoformat()
+                }
+                for game in recent_games
+            ]
+            
+            return Response({
+                "username": user.username,
+                "points": profile.points,
+                "lifetime_points": profile.lifetime_points,
+                "games_played": profile.games_played,
+                "high_score": profile.high_score,
+                "average_score": profile.average_score,
+                "recent_games": recent_games_data
+            }, status=status.HTTP_200_OK)
+            
+        except Profile.DoesNotExist:
+            profile = Profile.objects.create(user=user)
+            return Response({
+                "username": user.username,
+                "points": profile.points,
+                "lifetime_points": 0,
+                "games_played": 0,
+                "high_score": 0,
+                "average_score": 0,
+                "recent_games": []
+            }, status=status.HTTP_200_OK)

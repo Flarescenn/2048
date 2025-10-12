@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchLeaderboard } from "../api/api";
+import { getLeaderboard } from "../api/api";
 
 export default function Leaderboard() {
     const [leaders, setLeaders] = useState([]);
@@ -8,7 +8,6 @@ export default function Leaderboard() {
     const [refreshing, setRefreshing] = useState(false);
 
     const loadLeaderboard = async () => {
-        // Don't set loading if we're just refreshing
         if (!refreshing) {
             setLoading(true);
         }
@@ -16,7 +15,7 @@ export default function Leaderboard() {
         
         console.log("Fetching leaderboard data...");
         try {
-            const result = await fetchLeaderboard();
+            const result = await getLeaderboard('high_score', 10);
             console.log("Leaderboard API response:", result);
 
             if (result.success) {
@@ -39,7 +38,16 @@ export default function Leaderboard() {
         console.log("Leaderboard: Setting up (should see this ONCE)");
         loadLeaderboard();
         
-        // Refresh leaderboard every 60 seconds (reduced from 30)
+        // Listen for game completion to refresh leaderboard
+        const handleGameCompleted = () => {
+            console.log("Game completed - refreshing leaderboard");
+            setRefreshing(true);
+            loadLeaderboard();
+        };
+        
+        window.addEventListener('game-completed', handleGameCompleted);
+        
+        // Auto-refresh every 60 seconds
         const intervalId = setInterval(() => {
             console.log("Leaderboard: Auto-refresh triggered");
             setRefreshing(true);
@@ -48,9 +56,10 @@ export default function Leaderboard() {
         
         return () => {
             console.log("Leaderboard: Cleanup");
+            window.removeEventListener('game-completed', handleGameCompleted);
             clearInterval(intervalId);
         };
-    }, []); // Empty dependency array - only run once!
+    }, []);
 
     const handleManualRefresh = () => {
         setRefreshing(true);
@@ -105,16 +114,21 @@ export default function Leaderboard() {
                                 className={`${idx === 0 ? 'bg-yellow-50' : idx === 1 ? 'bg-gray-50' : idx === 2 ? 'bg-orange-50' : ''} 
                                          border-b hover:bg-gray-50 transition-colors`}
                             >
-                                <td className="py-2 px-3 font-bold text-gray-700">{idx + 1}</td>
+                                <td className="py-2 px-3 font-bold text-gray-700">{game.rank || idx + 1}</td>
                                 <td className="py-2 px-3 font-medium">
                                     {game.user}
-                                    {game.ai_model && (
-                                        <span className="ml-1 text-xs bg-purple-100 text-purple-800 px-1 py-0.5 rounded">
-                                            AI: {game.ai_model}
+                                    {game.games_played && (
+                                        <span className="ml-2 text-xs text-gray-500">
+                                            ({game.games_played} games)
                                         </span>
                                     )}
                                 </td>
-                                <td className="py-2 px-3 text-right font-bold">{game.score}</td>
+                                <td className="py-2 px-3 text-right font-bold">
+                                    {game.high_score || game.score}
+                                    {game.points && (
+                                        <div className="text-xs text-blue-600">{game.points} pts</div>
+                                    )}
+                                </td>
                             </tr>
                         ))}
                     </tbody>

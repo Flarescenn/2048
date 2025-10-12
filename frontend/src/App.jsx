@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import GameBoard from "./Components/GameBoard.jsx";
 import AIList from "./Components/AIList.jsx";
 import Leaderboard from "./Components/Leaderboard.jsx";
+import UserStats from "./Components/UserStats.jsx";
 import Login from "./Components/Login.jsx";
 import Register from "./Components/Register.jsx";
 import { logoutUser, fetchCurrentUser } from './api/api.js' 
@@ -189,8 +190,16 @@ export default function App() {
                                 <h1 className="text-xl font-extrabold text-gray-800 flex items-center gap-4">
                                     <span>Welcome, <span className="text-blue-600">{currentUser?.username || 'Player'}</span>!</span>
                                     
+                                    {/* Show user points */}
+                                    {currentUser?.points !== undefined && (
+                                        <span className="text-sm px-4 py-2 bg-blue-500 text-white rounded-xl shadow-md font-extrabold">
+                                            💰 {currentUser.points} Points
+                                        </span>
+                                    )}
+                                    
+                                    {/* Show current game score */}
                                     <span className="text-sm px-4 py-2 bg-yellow-500 text-white rounded-xl shadow-md font-extrabold">
-                                        CURRENT SCORE: {currentGameScore}
+                                        🎮 Score: {currentGameScore}
                                     </span>
                                 </h1>
                                 <button 
@@ -202,11 +211,12 @@ export default function App() {
                             </div>
                             
                             <div className="flex flex-col lg:flex-row gap-6">
-                                <div className="lg:w-2/3">
+                                <div className="lg:w-2/3 space-y-6">
                                     <GameBoard 
                                         gameId={GAME_ENDPOINT_ID} 
                                         onScoreUpdate={handleScoreUpdate}
-                                    /> 
+                                    />
+                                    <UserStats />
                                 </div>
                                 <div className="lg:w-1/3">
                                     <AIList onStartAI={() => {}} />

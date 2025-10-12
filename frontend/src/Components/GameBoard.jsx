@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { fetchAIModels, ensureSession, getCurrentUser } from "../api/api.js";
+import { fetchAIModels, ensureSession, getCurrentUser, completeGame } from "../api/api.js";
 
 const getTileColor = (value) => {
     switch (value) {
@@ -14,7 +14,19 @@ const getTileColor = (value) => {
         case 512: return "bg-yellow-600 text-white shadow-xl";
         case 1024: return "bg-yellow-700 text-white shadow-2xl";
         case 2048: return "bg-yellow-800 text-white shadow-2xl";
-        default: return "bg-gray-300 text-gray-700";
+        // Extended tiles beyond 2048!
+        case 4096: return "bg-purple-600 text-white shadow-2xl";
+        case 8192: return "bg-purple-700 text-white shadow-2xl";
+        case 16384: return "bg-purple-900 text-white shadow-2xl";
+        case 32768: return "bg-pink-600 text-white shadow-2xl";
+        case 65536: return "bg-pink-800 text-white shadow-2xl";
+        case 131072: return "bg-indigo-700 text-white shadow-2xl";
+        default: 
+            // For any super high tiles (262144+)
+            if (value > 131072) {
+                return "bg-black text-yellow-400 shadow-2xl border-4 border-yellow-400";
+            }
+            return "bg-gray-300 text-gray-700";
     }
 }
 
@@ -26,10 +38,13 @@ export default function GameBoard({ onScoreUpdate }) {
     const [wsOpen, setWsOpen] = useState(false);
     const [models, setModels] = useState([]);
     const [username, setUsername] = useState(null);
+    const [gameSaved, setGameSaved] = useState(false);
+    const [saveMessage, setSaveMessage] = useState('');
     
     const gameStateRef = useRef({ wsOpen: false, over: false });
     const reconnectFnRef = useRef(null);
-    const usernameRef = useRef(null); // Track username in ref
+    const usernameRef = useRef(null);
+    const prevOverRef = useRef(false); // Track previous "over" state
 
     // Keep username ref in sync
     useEffect(() => {
@@ -88,6 +103,48 @@ export default function GameBoard({ onScoreUpdate }) {
         loadModels();
     }, []);
 
+    // The corrected and simplified code:
+useEffect(() => {
+    // We only want to attempt saving when the game is over.
+    if (over && !gameSaved && username) {
+        
+        const save = async () => {
+            console.log('Game over detected - auto-saving game...');
+            
+            // 1. Immediately set the flag to prevent any other calls
+            setGameSaved(true); 
+
+            const result = await completeGame(score, board, 'manual');
+            
+            if (result.success) {
+                console.log('✅ Game saved successfully!', result.data);
+                setSaveMessage(`🎉 Earned ${result.data.points_earned} points!`);
+                
+                setTimeout(() => setSaveMessage(''), 5000);
+                
+                window.dispatchEvent(new CustomEvent('game-completed', {
+                    detail: result.data
+                }));
+            } else {
+                console.error('❌ Failed to save game:', result.error);
+                setSaveMessage(`Failed to save game: ${result.error} 😔`);
+                // Optional: Allow the user to try saving again if it fails
+                // setGameSaved(false); 
+            }
+        };
+
+        save();
+    }
+// 2. Simplify the dependencies. This effect only needs to react to these state changes.
+}, [over, gameSaved, username, score, board]);
+    // Reset gameSaved when game restarts
+    useEffect(() => {
+        if (!over && gameSaved) {
+            setGameSaved(false);
+            setSaveMessage('');
+        }
+    }, [over, gameSaved]);
+
     // Keep the ref updated with the latest state values
     useEffect(() => {
         gameStateRef.current = { wsOpen, over };
@@ -112,7 +169,7 @@ export default function GameBoard({ onScoreUpdate }) {
                 let wsUrl;
                 
                 if (isDevelopment) {
-                    wsUrl = `ws://localhost:8000/ws/game/?id=${connectionId}&session=${sessionId}`;
+                    wsUrl = `ws://127.0.0.1:8000/ws/game/?id=${connectionId}&session=${sessionId}`;
                 } else {
                     const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
                     wsUrl = `${protocol}//${loc.host}/ws/game/?id=${connectionId}&session=${sessionId}`;
@@ -297,7 +354,10 @@ export default function GameBoard({ onScoreUpdate }) {
             {over && 
                 <div className="p-4 bg-red-100 border border-red-400 text-red-700 rounded mb-4 text-center">
                     <h3 className="text-2xl font-extrabold">Game Over!</h3>
-                    <p>Final Score: {score}</p>
+                    <p className="text-lg">Final Score: {score}</p>
+                    {saveMessage && (
+                        <p className="mt-2 text-green-700 font-bold">{saveMessage}</p>
+                    )}
                 </div>
             }
 
@@ -325,18 +385,30 @@ export default function GameBoard({ onScoreUpdate }) {
             </div>
             
             <div className="grid grid-cols-4 gap-2 w-full max-w-sm mx-auto p-2 bg-gray-400 rounded-lg shadow-inner">
-                {board.flat().map((cell, idx) => (
-                    <div 
-                        key={idx} 
-                        className={`w-full aspect-square flex items-center justify-center rounded-lg text-2xl font-bold transition-all duration-200 transform ${getTileColor(cell)}`}
-                        style={{ 
-                            transform: cell > 0 ? 'scale(1)' : 'scale(0.8)', 
-                            opacity: cell > 0 ? 1 : 0.5 
-                        }}
-                    >
-                        {cell > 0 ? cell : ''}
-                    </div>
-                ))}
+                {board.flat().map((cell, idx) => {
+                    const isMegaTile = cell >= 4096;
+                    const fontSize = cell >= 8192 ? 'text-xl' : cell >= 1024 ? 'text-2xl' : 'text-2xl';
+                    
+                    return (
+                        <div 
+                            key={idx} 
+                            className={`w-full aspect-square flex items-center justify-center rounded-lg ${fontSize} font-bold transition-all duration-200 transform ${getTileColor(cell)} ${isMegaTile ? 'animate-pulse' : ''}`}
+                            style={{ 
+                                transform: cell > 0 ? 'scale(1)' : 'scale(0.8)', 
+                                opacity: cell > 0 ? 1 : 0.5 
+                            }}
+                        >
+                            {cell > 0 ? (
+                                <>
+                                    {cell}
+                                    {cell === 2048 && <span className="absolute text-xs mt-8">🎉</span>}
+                                    {cell === 4096 && <span className="absolute text-xs mt-8">🔥</span>}
+                                    {cell >= 8192 && <span className="absolute text-xs mt-8">👑</span>}
+                                </>
+                            ) : ''}
+                        </div>
+                    );
+                })}
             </div>
         </div>
     )
