@@ -26,6 +26,11 @@ export default function GameBoard({ onScoreUpdate }) {
     const [wsOpen, setWsOpen] = useState(false);
     const [models, setModels] = useState([]);
     const [username, setUsername] = useState(null);
+
+    // for replays 
+    const [isInReplayMode, setIsInReplayMode] = useState(false);
+    const [replayHistory, setReplayHistory] = useState([]);
+    const [replayIndex, setReplayIndex] = useState(0);
     
     const gameStateRef = useRef({ wsOpen: false, over: false });
     const reconnectFnRef = useRef(null);

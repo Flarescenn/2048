@@ -1,4 +1,6 @@
 class BaseAgent:
-    """All AI agents must implement get_move(board)"""
+    def __init__(self, params=None):
+        self.params = params if params is not None else {}
+
     def get_move(self, board):
         raise NotImplementedError

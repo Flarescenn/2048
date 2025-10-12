@@ -98,36 +98,46 @@ class GameConsumer(AsyncWebsocketConsumer):
             return
 
         agent = agent_cls()
+        replay_history = []
+
+        import copy
+        temp_game = copy.deepcopy(game)
+
+        # Add initial state
+        replay_history.append({
+            "move": "Initial",
+            "board": [row[:] for row in temp_game.board],
+            "score": temp_game.score
+        })
+
         try:
             while not game.over:
-                await asyncio.sleep(0.3)
+                # await asyncio.sleep(0.3)
+                # Run the game loop without any sleep
                 move = agent.get_move(game.board)
                 moved = game.move(move)
 
                 if moved:
-                    try:
-                        if hasattr(self, 'channel_layer'):
-                            await self.channel_layer.group_send(
-                                self.group_name,
-                                {
-                                    "type": "broadcast_state",
-                                    "board": game.board,
-                                    "score": game.score,
-                                    "over": game.over
-                                }
-                            )
-                        else:
-                            await self.send(text_data=json.dumps({
-                                "type": "update",
-                                "board": game.board,
-                                "score": game.score,
-                                "over": game.over
-                            }))
-                    except Exception as e:
-                        print(f"Error sending AI move update: {str(e)}")
+                    # Capture the state AFTER the move
+                    replay_history.append({
+                        "move": move,
+                        "board": [row[:] for row in temp_game.board],
+                        "score": temp_game.score
+                    })
+            
+            print(f"AI ({agent_name}) finished game. Captured {len(replay_history)} states.")
+
         except asyncio.CancelledError:
+            print("AI task cancelled!")
             pass
         finally:
+            # Send the moveset to the client in one go
+            await self.send(text_data=json.dumps({
+                "type": "ai_replay",
+                "replay": replay_history,
+                "final_score": temp_game.score,
+                "agent": agent_name
+            }))
             self.ai_task = None
 
     async def connect(self):
