@@ -45,11 +45,13 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
     const [aiMoves, setAiMoves] = useState([]); // Stores the move sequence from the server
     const [playbackIndex, setPlaybackIndex] = useState(0); // Tracks our current index in the playback
 
-    
+    const stateRef = useRef();
+    stateRef.current = { over, inPlaybackMode, playbackIndex, aiMoves };
+
     const gameStateRef = useRef({ wsOpen: false, over: false });
     const reconnectFnRef = useRef(null);
     const usernameRef = useRef(null);
-    const prevOverRef = useRef(false); // Track previous "over" state
+    // const prevOverRef = useRef(false); // Track previous "over" state
 
     // Keep username ref in sync
     useEffect(() => {
@@ -96,24 +98,13 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
         }
     }
 
-    const handleKey = (e) => {
-        const { wsOpen: currentWsOpen, over: currentOver } = gameStateRef.current;
-        
-        if (!currentWsOpen || currentOver) {
-            return;
-        }
+    const handleNextMove = () => {
+        setPlaybackIndex(prevIndex => Math.min(prevIndex + 1, aiMoves.length - 1));
+    };
 
-        let direction = '';
-        switch (e.key) {
-            case 'ArrowUp': direction = 'up'; break;
-            case 'ArrowDown': direction = 'down'; break;
-            case 'ArrowLeft': direction = 'left'; break;
-            case 'ArrowRight': direction = 'right'; break;
-            default: return;
-        }
-        e.preventDefault();
-        sendMessage({ type: 'move', direction });
-    }
+    const handlePreviousMove = () => {
+        setPlaybackIndex(prevIndex => Math.max(prevIndex - 1, 0));
+    };
     
     // Fetch AI models list ONCE
     useEffect(() => {
@@ -158,7 +149,7 @@ useEffect(() => {
 
         save();
     }
-// 2. Simplify the dependencies. This effect only needs to react to these state changes.
+// Simplify the dependencies. This effect only needs to react to these state changes.
 }, [over, gameSaved, username, score, board]);
     // Reset gameSaved when game restarts
     useEffect(() => {
@@ -175,6 +166,55 @@ useEffect(() => {
 
     // WebSocket connection logic - ONLY runs once on mount
     useEffect(() => {
+
+        const handleKey = (e) => {
+        let direction = '';
+        switch (e.key) {
+            case 'ArrowUp': direction = 'up'; break;
+            case 'ArrowDown': direction = 'down'; break;
+            case 'ArrowLeft': direction = 'left'; break;
+            case 'ArrowRight': direction = 'right'; break;
+            default: return;
+        }
+        e.preventDefault();
+
+        const { over, inPlaybackMode, playbackIndex, aiMoves } = stateRef.current;
+
+        // Condition 1: Normal gameplay
+        if (!inPlaybackMode && !over) {
+            sendMessage({ type: 'move', direction });
+            return;
+        }
+
+        // Condition 2: In playback, but NOT on the final move yet
+        if (inPlaybackMode && playbackIndex < aiMoves.length - 1) {
+            console.log("Player move blocked during AI playback.");
+            return;
+        }
+
+        // Condition 3: In playback AND on the final AI move
+        if (inPlaybackMode && playbackIndex === aiMoves.length - 1) {
+            console.log("Final AI move reached. Player move will commit and resume gameplay.");
+            
+            // The user's move is the "auto-accept" action.
+            // Commit the AI's final state to the backend.
+            const finalAIState = aiMoves[playbackIndex];
+            sendMessage({
+                type: 'commit_ai_moves',
+                board: finalAIState.board,
+                score: finalAIState.score
+            });
+
+            // Send the player's new move immediately after.
+            // The backend will process these in order.
+            sendMessage({ type: 'move', direction });
+
+            // Finally, exit playback mode on the client.
+            setInPlaybackMode(false);
+            setAiMoves([]);
+            }
+        }
+
         let mounted = true;
         console.log("WebSocket connection effect running (should only see this ONCE)");
         
@@ -226,6 +266,7 @@ useEffect(() => {
                         const data = JSON.parse(event.data);
                         
                         if (data.type === "init" || data.type === "update") {
+                            setInPlaybackMode(false); 
                             setBoard(data.board);
                             setScore(data.score);
                             setOver(data.over);
@@ -314,7 +355,7 @@ useEffect(() => {
                 }
             }
         };
-    }, []); // Empty dependency array - only run once!
+    }, [onScoreUpdate]); 
     
     // Auth checking - completely separate from WebSocket
     useEffect(() => {
@@ -378,6 +419,16 @@ useEffect(() => {
         }
     };
 
+    const displayBoard = 
+        inPlaybackMode && aiMoves.length > 0
+        ? aiMoves[playbackIndex].board 
+        : board;
+
+    const displayScore = 
+        inPlaybackMode && aiMoves.length > 0
+        ? aiMoves[playbackIndex].score
+        : score;
+
     return (
         <div className="bg-white shadow-xl rounded-xl p-6 border-t-4 border-blue-500">
             <div className="flex justify-between items-center mb-4">
@@ -392,13 +443,44 @@ useEffect(() => {
             {over && 
                 <div className="p-4 bg-red-100 border border-red-400 text-red-700 rounded mb-4 text-center">
                     <h3 className="text-2xl font-extrabold">Game Over!</h3>
-                    <p className="text-lg">Final Score: {score}</p>
+                    <p className="text-lg">Final Score: {displayScore}</p>
                     {saveMessage && (
                         <p className="mt-2 text-green-700 font-bold">{saveMessage}</p>
                     )}
                 </div>
             }
 
+            {inPlaybackMode ? (
+            // --- RENDER THIS WHEN IN PLAYBACK MODE ---
+            <div className="bg-purple-100 border-2 border-purple-300 p-3 rounded-lg mb-4 text-center shadow-lg animate-pulse">
+                <h4 className="text-lg font-bold text-purple-800">Playback Mode</h4>
+                <div className="flex justify-center items-center gap-4 mt-2">
+                    <button 
+                        onClick={handlePreviousMove} 
+                        disabled={playbackIndex === 0}
+                        className="px-4 py-2 bg-purple-500 text-white rounded-lg font-semibold transition hover:bg-purple-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                        &larr; Previous
+                    </button>
+                    <span className="font-mono text-lg text-purple-800">
+                        Move {playbackIndex + 1} / {aiMoves.length}
+                    </span>
+                    <button 
+                        onClick={handleNextMove}
+                        disabled={playbackIndex >= aiMoves.length - 1}
+                        className="px-4 py-2 bg-purple-500 text-white rounded-lg font-semibold transition hover:bg-purple-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                        Next &rarr;
+                    </button>
+                </div>
+                {playbackIndex === aiMoves.length - 1 && (
+                    <p className="text-sm text-green-600 mt-2 font-semibold">
+                        You are at the final move. Use arrow keys to continue playing.
+                    </p>
+                )}
+            </div>
+        ) : (
+            // --- RENDER THIS WHEN IN LIVE MODE ---
             <div className="flex justify-between items-center mb-4">
                 <div className="flex items-center">
                     <p className={`text-sm font-medium ${wsOpen ? 'text-green-600' : 'text-red-600'} mr-2`}>
@@ -421,9 +503,10 @@ useEffect(() => {
                     Restart Game
                 </button>
             </div>
+        )}
             
             <div className="grid grid-cols-4 gap-2 w-full max-w-sm mx-auto p-2 bg-gray-400 rounded-lg shadow-inner">
-                {board.flat().map((cell, idx) => {
+                {displayBoard.flat().map((cell, idx) => {
                     const isMegaTile = cell >= 4096;
                     const fontSize = cell >= 8192 ? 'text-xl' : cell >= 1024 ? 'text-2xl' : 'text-2xl';
                     

@@ -40,7 +40,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             return False
         
     @database_sync_to_async
-    def save_game_state(self, user_id, board, score, is_over):
+    def save_game_state(self, user_id, board, score, is_over, ai_assisted):
         """Save current game state to database"""
         from django.contrib.auth.models import User
         from .models import GameState
@@ -55,7 +55,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                 defaults={
                     'board_state': json.dumps(board),
                     'score': score,
-                    'is_over': is_over
+                    'is_over': is_over,
+                    "ai_assisted": ai_assisted
                 }
             )
             
@@ -314,7 +315,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                     self.user_id,
                     self.game.board,
                     self.game.score,
-                    self.game.over
+                    self.game.over,
+                    self.game.ai_assisted
                 )
                 print(f"✓ Game state saved to database")
                 
@@ -355,7 +357,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                                 self.user_id,
                                 self.game.board,
                                 self.game.score,
-                                self.game.over
+                                self.game.over,
+                                self.game.ai_assisted
                             )
                         
                         if hasattr(self, 'channel_layer'):
@@ -394,11 +397,16 @@ class GameConsumer(AsyncWebsocketConsumer):
                     return
                 
                 # All tests passed
+
                 agent_cls = AGENTS.get(agent_name.lower())
                 if not agent_cls:
                     await self.send(text_data=json.dumps({"type": "error", "message": f"AI agent '{agent_name}' not found."}))
                     return
-                
+                self.game.ai_assisted = True
+                await self.save_game_state(
+                    self.user_id, self.game.board, self.game.score, self.game.over, self.game.ai_assisted
+                )
+                print(f"Game for user {self.user_id} is now flagged as AI-Assisted.")
                 agent = agent_cls()
                 # Gets the move seqeuences (list of dictionaries ie the game states)
                 move_sequence = agent.get_move_sequence(self.game, num_moves)
@@ -415,13 +423,11 @@ class GameConsumer(AsyncWebsocketConsumer):
                     self.game.board = final_board
                     self.game.score = final_score
                     self.game.over = self.game.is_game_over()
-                    
-                    # TODO: Add logic to mark this game state as 'ai_assist_used' in the database
                     print(f"AI moves committed for user {self.user_id}. New score: {self.game.score}")
                     
                     # Save the new state to the database
                     if self.user_id:
-                        await self.save_game_state(self.user_id, self.game.board, self.game.score, self.game.over)
+                        await self.save_game_state(self.user_id, self.game.board, self.game.score, self.game.over, self.game.ai_assisted)
                     
                     # Broadcast the final state to all connected clients for this user
                     await self.channel_layer.group_send(
@@ -453,7 +459,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                         self.user_id,
                         self.game.board,
                         self.game.score,
-                        self.game.over
+                        self.game.over,
+                        self.game.ai_assisted
                     )
                 
                 if hasattr(self, 'channel_layer'):

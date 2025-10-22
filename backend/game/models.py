@@ -60,6 +60,10 @@ class GameState(models.Model):
         default=False,
         help_text="Whether the game is over"
     )
+    ai_assisted = models.BooleanField(
+        default=False, 
+        help_text="True if an AI move has been requested for this game"
+    )
     last_updated = models.DateTimeField(
         auto_now=True,
         help_text="When this game state was last modified"
