@@ -40,6 +40,7 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
     const [username, setUsername] = useState(null);
     const [gameSaved, setGameSaved] = useState(false);
     const [saveMessage, setSaveMessage] = useState('');
+    const [isAiAssisted, setIsAiAssisted] = useState(false);
 
     const [inPlaybackMode, setInPlaybackMode] = useState(false);
     const [aiMoves, setAiMoves] = useState([]); // Stores the move sequence from the server
@@ -105,7 +106,11 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
     const handlePreviousMove = () => {
         setPlaybackIndex(prevIndex => Math.max(prevIndex - 1, 0));
     };
-    
+    const handleSkipToEnd = () => {
+        if (aiMoves.length > 0) {
+            setPlaybackIndex(aiMoves.length - 1);
+        }
+    };
     // Fetch AI models list ONCE
     useEffect(() => {
         const loadModels = async () => {
@@ -127,8 +132,8 @@ useEffect(() => {
             
             // 1. Immediately set the flag to prevent any other calls
             setGameSaved(true); 
-
-            const result = await completeGame(score, board, 'manual');
+            const gameMode = isAiAssisted ? 'ai' : 'manual';
+            const result = await completeGame(score, board, gameMode);
             
             if (result.success) {
                 console.log('✅ Game saved successfully!', result.data);
@@ -150,7 +155,7 @@ useEffect(() => {
         save();
     }
 // Simplify the dependencies. This effect only needs to react to these state changes.
-}, [over, gameSaved, username, score, board]);
+}, [over, gameSaved, username, score, board, isAiAssisted]);
     // Reset gameSaved when game restarts
     useEffect(() => {
         if (!over && gameSaved) {
@@ -270,6 +275,9 @@ useEffect(() => {
                             setBoard(data.board);
                             setScore(data.score);
                             setOver(data.over);
+                            if (data.ai_assisted) {
+                                setIsAiAssisted(true);
+                            }
                             
                             if (data.username) {
                                 setUsername(data.username);
@@ -284,6 +292,7 @@ useEffect(() => {
                                 setAiMoves(data.moves);       // Store the sequence of moves
                                 setInPlaybackMode(true);      // Playback mode activation
                                 setPlaybackIndex(0);          // Set playback index to 0
+                                setIsAiAssisted(true);
                             } else {
                                 console.log("AI returned no valid moves.");
                             }
@@ -410,7 +419,9 @@ useEffect(() => {
     }, []); // Empty dependency array!
 
     const handleRestart = () => {
+        setIsAiAssisted(false);
         sendMessage({ type: 'restart' });
+        
     }
 
     const handleManualReconnect = () => {
@@ -473,6 +484,16 @@ useEffect(() => {
                         Next &rarr;
                     </button>
                 </div>
+                {playbackIndex < aiMoves.length - 1 && (
+                    <div className="mt-3">
+                         <button 
+                            onClick={handleSkipToEnd} 
+                            className="px-4 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full text-sm font-semibold transition shadow-sm"
+                        >
+                            Skip &raquo;
+                        </button>
+                    </div>
+                )}
                 {playbackIndex === aiMoves.length - 1 && (
                     <p className="text-sm text-green-600 mt-2 font-semibold">
                         You are at the final move. Use arrow keys to continue playing.

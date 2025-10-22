@@ -8,6 +8,7 @@ from .serializers import AISerializer, UserUnlockedSerializer, GameSerializer # 
 from django.contrib.auth import logout
 from django.conf import settings
 from django.http import JsonResponse
+from django.db.models import Sum, Case, When, IntegerField, F, Count
 
 # --- CSRF DIAGNOSTIC IMPORTS ---
 from django.views.decorators.csrf import csrf_exempt 
@@ -199,49 +200,38 @@ class LeaderboardView(APIView):
     """Get top players by high score or total points."""
     permission_classes = [permissions.AllowAny]
     
-    def get(self, request):
-        from users.models import Profile
+    def get(self, request):        
+        leaderboard_data = Game.objects.values(
+            'user__username'  # Group all games by the user's username
+        ).annotate(
+            # Sum of "ONLY HUMAN" matches
+            human_score=Sum(
+                Case(When(mode='manual', then='score'), default=0, output_field=IntegerField())
+            ),
+            # Sum of "ai" matches
+            ai_score=Sum(
+                Case(When(mode='ai', then='score'), default=0, output_field=IntegerField())
+            ),
+            total_score=Sum('score'),
+            games_played=Count('id') 
+        ).order_by('-total_score')[:10]  # Order by the total score descending, take top 10
+
+        # The QuerySet to a list of dictionaries for the JSON response
+        # Rank is added here for convenience on the frontend
+        leaderboard_list = [
+            {
+                'rank': index + 1,
+                'username': entry['user__username'],
+                'total_score': entry['total_score'],
+                'human_score': entry['human_score'],
+                'ai_score': entry['ai_score'],
+                'games_played': entry['games_played'],
+            }
+            for index, entry in enumerate(leaderboard_data)
+        ]
         
-        sort_by = request.query_params.get('sort_by', 'high_score')
-        limit = request.query_params.get('limit', 10)
-        
-        try:
-            limit = min(int(limit), 50)
-        except ValueError:
-            limit = 10
-        
-        if sort_by == 'points':
-            # Leaderboard by total points
-            top_profiles = Profile.objects.select_related('user').order_by('-points')[:limit]
-            leaderboard = [
-                {
-                    'rank': idx + 1,
-                    'user': profile.user.username,
-                    'points': profile.points,
-                    'high_score': profile.high_score,
-                    'games_played': profile.games_played
-                }
-                for idx, profile in enumerate(top_profiles)
-            ]
-        else:
-            # Leaderboard by high score (default)
-            top_profiles = Profile.objects.select_related('user').order_by('-high_score')[:limit]
-            leaderboard = [
-                {
-                    'rank': idx + 1,
-                    'user': profile.user.username,
-                    'high_score': profile.high_score,
-                    'score': profile.high_score,  # For compatibility with old frontend
-                    'points': profile.points,
-                    'games_played': profile.games_played
-                }
-                for idx, profile in enumerate(top_profiles)
-            ]
-        
-        return Response({
-            "success": True,
-            "data": leaderboard
-        }, status=status.HTTP_200_OK)
+        return Response(leaderboard_list)
+
 # ----------------------------------------------------------------------
 # 5. LogoutView (CRITICAL FIX FOR PERSISTENT SESSION TOKEN)
 # ----------------------------------------------------------------------

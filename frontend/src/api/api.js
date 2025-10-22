@@ -178,21 +178,16 @@ export const purchaseAI = async (ai_model_id) => {
     }
 }
 
-/**
- * Fetches the public leaderboard data.
- */
-export const fetchLeaderboard = async()=>{
+export const getLeaderboard = async () => {
     try {
-        const res = await axios.get(`${API_BASE}/leaderboard/`)
-        return { data: res.data, success: true };
+        const response = await axios.get(`${API_BASE}/leaderboard/`);
+        // The backend sends the array directly.
+        return response.data; 
     } catch (error) {
-        return { 
-            error: error.response?.data?.error || 'Failed to load leaderboard.', 
-            success: false 
-        };
+        console.error('Error fetching leaderboard:', error);
+        throw error;
     }
-}
-
+};
 /**
  * Fetches current logged in user information.
  * This is used to check authentication status and get user details.
@@ -285,25 +280,3 @@ export const getUserStats = async () => {
     }
 };
 
-/**
- * Get leaderboard with sorting options
- * @param {string} sortBy - 'high_score' or 'points'
- * @param {number} limit - Number of entries to return
- */
-export const getLeaderboard = async (sortBy = 'high_score', limit = 10) => {
-    try {
-        const res = await axios.get(`${API_BASE}/leaderboard/`, {
-            params: { sort_by: sortBy, limit }
-        });
-        return {
-            success: true,
-            data: res.data.data
-        };
-    } catch (error) {
-        console.error('Error fetching leaderboard:', error);
-        return {
-            success: false,
-            error: error.response?.data?.error || error.message
-        };
-    }
-};
