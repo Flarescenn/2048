@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { fetchAIModels, ensureSession, getCurrentUser, completeGame } from "../api/api.js";
 
 const getTileColor = (value) => {
@@ -30,7 +30,7 @@ const getTileColor = (value) => {
     }
 }
 
-export default function GameBoard({ onScoreUpdate }) {
+const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
     const [board, setBoard] = useState(Array(4).fill(null).map(() => Array(4).fill(0)))
     const [score, setScore] = useState(0)
     const [over, setOver] = useState(false)
@@ -40,6 +40,11 @@ export default function GameBoard({ onScoreUpdate }) {
     const [username, setUsername] = useState(null);
     const [gameSaved, setGameSaved] = useState(false);
     const [saveMessage, setSaveMessage] = useState('');
+
+    const [inPlaybackMode, setInPlaybackMode] = useState(false);
+    const [aiMoves, setAiMoves] = useState([]); // Stores the move sequence from the server
+    const [playbackIndex, setPlaybackIndex] = useState(0); // Tracks our current index in the playback
+
     
     const gameStateRef = useRef({ wsOpen: false, over: false });
     const reconnectFnRef = useRef(null);
@@ -50,6 +55,24 @@ export default function GameBoard({ onScoreUpdate }) {
     useEffect(() => {
         usernameRef.current = username;
     }, [username]);
+
+    const handleStartAI = ({ agent, num_moves }) => {
+        if (over || inPlaybackMode) {
+            console.log("Cannot start AI while game is over or in playback mode.");
+            return;
+        }
+        console.log(`Requesting ${num_moves} moves from ${agent}...`);
+        sendMessage({
+            type: 'get_ai_moves',
+            agent: agent,
+            num_moves: num_moves
+        });
+    };
+
+    useImperativeHandle(ref, () => ({
+        // The parent will call this as "ref.current.startAI(...)"
+        startAI: handleStartAI
+    }));
 
     const getCookie = (name) => {
         if (!document.cookie) {
@@ -213,8 +236,23 @@ useEffect(() => {
                             
                             if (onScoreUpdate) {
                                 onScoreUpdate(data.score);
+                            }}
+                        else if (data.type === "ai_move_sequence") {
+                            if (data.moves && data.moves.length > 0) {
+                                console.log("Received AI move sequence:", data.moves);
+                                setAiMoves(data.moves);       // Store the sequence of moves
+                                setInPlaybackMode(true);      // Playback mode activation
+                                setPlaybackIndex(0);          // Set playback index to 0
+                            } else {
+                                console.log("AI returned no valid moves.");
                             }
                         }
+                        else if (data.type === "error") { 
+                            console.error("Server Error:", data.message);
+                            alert(`Error: ${data.message}`); 
+                            
+                        }
+                        
                     } catch (err) {
                         console.error("Error parsing message:", err);
                     }
@@ -412,4 +450,6 @@ useEffect(() => {
             </div>
         </div>
     )
-}
+});
+
+export default GameBoard;

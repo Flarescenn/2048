@@ -9,6 +9,8 @@ export default function AIList({ onStartAI }) {
     const [listLoading, setListLoading] = useState(true);
     const [statusMessage, setStatusMessage] = useState(null);
 
+    const [numMoves, setNumMoves] = useState(5);
+
     // --- Data Fetching Effect ---
     const loadAIModels = async () => {
         setListLoading(true);
@@ -92,14 +94,28 @@ export default function AIList({ onStartAI }) {
                         <div className="text-sm text-gray-600 mb-3">{ai.description}</div>
                         
                         <div className="flex justify-end space-x-2">
+                            <div className="flex-grow">
+                                <label htmlFor={`moves-${ai.id}`} className="text-xs text-gray-500">Moves:</label>
+                                <input 
+                                    id={`moves-${ai.id}`}
+                                    type="number"
+                                    value={numMoves}
+                                    onChange={(e) => setNumMoves(parseInt(e.target.value, 10))}
+                                    className="w-16 p-1 border rounded text-center"
+                                    min="1"
+                                    max="25" 
+                                    disabled={!ai.unlocked || isBusy}
+                                />
+                            </div>
+
                             {/* Play Button */}
                             <button 
-                                onClick={() => onStartAI(ai.name)}
+                                onClick={() => onStartAI({ agent: ai.name, num_moves: numMoves })}
                                 disabled={!ai.unlocked || isBusy} 
                                 className={`px-4 py-2 rounded-lg font-semibold transition duration-300 shadow-md 
                                     ${ai.unlocked ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
                             >
-                                {ai.unlocked ? 'Start Game' : 'Locked'}
+                                Get Moves
                             </button>
                             
                             {/* Unlock Button */}

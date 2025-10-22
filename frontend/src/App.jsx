@@ -19,6 +19,19 @@ export default function App() {
     const authStateRef = useRef({ authenticated: false, username: null });
     const GAME_ENDPOINT_ID = "game_instance"; 
 
+    const gameBoardRef = useRef(null);
+
+    // Create the handler function that will be passed to AIList
+    // This function will use the ref to call the method we exposed in GameBoard
+    const triggerAIHandler = ({ agent, num_moves }) => {
+        console.log("App.jsx: AI handler triggered. Calling GameBoard's startAI function.");
+        if (gameBoardRef.current) {
+            gameBoardRef.current.startAI({ agent, num_moves });
+        } else {
+            console.error("Could not find GameBoard component reference.");
+        }
+    };
+
     useEffect(() => {
         console.log("App.jsx: Setting up authentication monitoring (should see this ONCE)");
         
@@ -207,6 +220,7 @@ export default function App() {
                             <div className="col-span-7 flex flex-col gap-4">
                                 <div className="flex-1">
                                     <GameBoard 
+                                        ref={gameBoardRef} 
                                         gameId={GAME_ENDPOINT_ID} 
                                         onScoreUpdate={handleScoreUpdate}
                                     />
@@ -217,7 +231,7 @@ export default function App() {
                             </div>
                             
                             <div className="col-span-2">
-                                <AIList onStartAI={() => {}} />
+                                <AIList onStartAI={triggerAIHandler} />
                             </div>
                             
                             <div className="col-span-3">
