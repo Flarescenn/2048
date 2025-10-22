@@ -63,10 +63,34 @@ class AIModelListView(generics.ListAPIView):
     """
     List all available AI models.
     """
-    queryset = AIModel.objects.all()
+    queryset = AIModel.objects.all().order_by('tier', 'cost')
     serializer_class = AISerializer
     permission_classes = [permissions.AllowAny]
 
+    def list(self, request, *args, **kwargs):
+        # 1. Get the standard list of all AI models from the database
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        all_models_data = serializer.data
+
+        # 2. Check if the user is logged in
+        if request.user.is_authenticated:
+            # 3. If so, find the IDs of all AI models this user has unlocked
+            # Using a set for efficient lookups (O(1) average time complexity)
+            unlocked_ids = set(
+                UserUnlocked.objects.filter(user=request.user).values_list('ai_model_id', flat=True)
+            )
+            
+            # 4. Loop through the AI model data and add our new 'unlocked' field
+            for model in all_models_data:
+                model['unlocked'] = model['id'] in unlocked_ids
+        else:
+            # 5. If the user is not logged in, none of the models are unlocked for them
+            for model in all_models_data:
+                model['unlocked'] = False
+        
+        # 6. Return the newly enhanced data
+        return Response(all_models_data)
 # ----------------------------------------------------------------------
 # 2. PurchaseView (CRITICAL REVISIONS for security and atomicity + CSRF Diagnostic)
 # ----------------------------------------------------------------------
