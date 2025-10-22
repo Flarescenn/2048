@@ -1,4 +1,5 @@
 import random
+import copy
 
 class Game2048:
     def __init__(self):
@@ -156,3 +157,7 @@ class Game2048:
             'score':self.score,
             'over':self.over
         }
+    
+    def clone(self):
+        # Creates a deep copy of the current game instance
+        return copy.deepcopy(self)

@@ -4,6 +4,8 @@ from channels.db import database_sync_to_async
 from .game_engine import Game2048
 import asyncio
 
+from .models import AIModel, UserUnlocked, GameState
+
 # Try to import AGENTS, but continue without them if not available
 try:
     from game.ai_agents import AGENTS
@@ -24,6 +26,19 @@ class GameConsumer(AsyncWebsocketConsumer):
         self.game = None
         self.authenticated_username = None
 
+    @database_sync_to_async
+    def check_ai_unlocked(self, user_id, agent_name):
+        # Checks to see if the user has said agent unlocked
+        try:
+            ai_model = AIModel.objects.get(name= agent_name)
+            return UserUnlocked.objects.filter(user_id = user_id, ai_model = ai_model).exists()
+        except AIModel.DoesNotExist:
+            print(f"AI model {agent_name} not found in the database")
+            return False
+        except Exception as e:
+            print(f"Error unlocking AI: {e}")
+            return False
+        
     @database_sync_to_async
     def save_game_state(self, user_id, board, score, is_over):
         """Save current game state to database"""
@@ -363,12 +378,64 @@ class GameConsumer(AsyncWebsocketConsumer):
                                 "username": self.authenticated_username
                             }))
                         
-            elif data.get("type") == "ai":
+            elif data.get("type") == "get_ai_moves":
                 agent_name = data.get("agent")
-                if agent_name:
-                    if self.ai_task: 
-                        self.ai_task.cancel()
-                    self.ai_task = asyncio.create_task(self.run_ai(self.game, agent_name))
+                num_moves = int(data.get("num_moves", 5))
+
+                # User must be logged in
+                if not self.user_id:
+                    await self.send(text_data=json.dumps({"type": "error", "message": "You must be logged in to use AI."}))
+                    return
+
+                # Must have unlocked the AI
+                is_unlocked = await self.check_ai_unlocked(self.user_id, agent_name)
+                if not is_unlocked:
+                    await self.send(text_data=json.dumps({"type": "error", "message": f"AI '{agent_name}' is not unlocked."}))
+                    return
+                
+                # All tests passed
+                agent_cls = AGENTS.get(agent_name.lower())
+                if not agent_cls:
+                    await self.send(text_data=json.dumps({"type": "error", "message": f"AI agent '{agent_name}' not found."}))
+                    return
+                
+                agent = agent_cls()
+                # Gets the move seqeuences (list of dictionaries ie the game states)
+                move_sequence = agent.get_move_sequence(self.game, num_moves)
+
+                await self.send(text_data=json.dumps({"type": "ai_move_sequence", "moves": move_sequence}))
+            
+            
+            elif data.get("type") == "commit_ai_moves":
+                final_board = data.get('board')
+                final_score = data.get('score')
+                
+                if final_board and final_score is not None:
+                    # Update the official game state
+                    self.game.board = final_board
+                    self.game.score = final_score
+                    self.game.over = self.game.is_game_over()
+                    
+                    # TODO: Add logic to mark this game state as 'ai_assist_used' in the database
+                    print(f"AI moves committed for user {self.user_id}. New score: {self.game.score}")
+                    
+                    # Save the new state to the database
+                    if self.user_id:
+                        await self.save_game_state(self.user_id, self.game.board, self.game.score, self.game.over)
+                    
+                    # Broadcast the final state to all connected clients for this user
+                    await self.channel_layer.group_send(
+                        self.group_name, 
+                        {
+                            "type": "broadcast_state",
+                            "board": self.game.board,
+                            "score": self.game.score,
+                            "over": self.game.over
+                        }
+                    )
+                else:
+                    await self.send(text_data=json.dumps({"type": "error", "message": "Invalid data for committing AI moves."}))
+
                     
             elif data.get("type") == "restart":
                 if self.ai_task: 
