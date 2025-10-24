@@ -178,13 +178,15 @@ export const purchaseAI = async (ai_model_id) => {
     }
 }
 
-export const getLeaderboard = async () => {
+export const getLeaderboard = async (mode) => {
     try {
-        const response = await axios.get(`${API_BASE}/leaderboard/`);
+        const response = await axios.get(`${API_BASE}/leaderboard/`, {
+            params: {mode}
+        })
         // The backend sends the array directly.
         return response.data; 
     } catch (error) {
-        console.error('Error fetching leaderboard:', error);
+        console.error(`Error fetching ${mode} leaderboard:`, error);
         throw error;
     }
 };

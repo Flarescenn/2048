@@ -7,15 +7,23 @@ export default function Leaderboard() {
     const [error, setError] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
 
-    const fetchLeaderboard = async (isManualRefresh = false) => {
-        if (isManualRefresh) {
-            setRefreshing(true);
-        } else {
-            setLoading(true);
-        }
+    const modes = ['total', 'human', 'ai'];
+    const modeDetails = {
+        total: { label: 'Total Score', color: 'text-yellow-400' },
+        human: { label: 'Human Score', color: 'text-blue-400' },
+        ai: { label: 'AI Score', color: 'text-purple-400' }
+    };
+    const [mode, setMode] = useState('total'); 
+
+    const fetchLeaderboard = async (currentMode) => {
+        // if (isManualRefresh) {
+        //     setRefreshing(true);
+        // } else {
+        //     setLoading(true);
+        // }
         setError(null);
         try {
-            const data = await getLeaderboard();
+            const data = await getLeaderboard(currentMode);
             if (Array.isArray(data)) {
                 setLeaders(data);
             } else {
@@ -35,11 +43,17 @@ export default function Leaderboard() {
         fetchLeaderboard(true);
     };
 
+    const handleModeToggle = () => {
+        const currentIndex = modes.indexOf(mode);
+        const nextIndex = (currentIndex + 1) % modes.length;
+        setMode(modes[nextIndex]);
+    };
+
     useEffect(() => {
-        fetchLeaderboard();
-        const interval = setInterval(fetchLeaderboard, 60000); // Refresh every 60 seconds
-        return () => clearInterval(interval);
-    }, []);
+        fetchLeaderboard(mode);
+        // const interval = setInterval(fetchLeaderboard, 60000); // Refresh every 60 seconds
+        // return () => clearInterval(interval);
+    }, [mode]);
 
     const renderContent = () => {
         if (loading && !refreshing) {
@@ -83,6 +97,12 @@ export default function Leaderboard() {
                 {leaders.map((entry, idx) => {
                     const rank = entry.rank || idx + 1;
                     const isTop3 = rank <= 3;
+
+                    let displayScore = 0;
+                    if (mode === 'human') displayScore = entry.human_score;
+                    else if (mode === 'ai') displayScore = entry.ai_score;
+                    else displayScore = entry.total_score;
+
                     
                     return (
                         <div 
@@ -117,21 +137,22 @@ export default function Leaderboard() {
                                     </div>
                                 </div>
                                 
-                                <div className="relative text-right flex-shrink-0">
-                                    <div className={`font-bold text-lg transition-opacity duration-300 group-hover:opacity-0 ${
-                                        rank === 1 ? 'text-yellow-400' :
-                                        rank === 2 ? 'text-slate-300' :
-                                        rank === 3 ? 'text-orange-400' :
-                                        'text-blue-400'
-                                    }`}>
-                                        {entry.total_score?.toLocaleString() || 0}
+                                <div className="relative text-right flex-shrink-0 w-24">
+                                    {/* --- MAIN SCORE DISPLAY --- */}
+                                    {/* Shows the score relevant to the current mode */}
+                                    <div className={`font-bold text-lg transition-opacity duration-300 ${mode === 'total' ? 'group-hover:opacity-0' : ''} ${modeDetails[mode].color}`}>
+                                        {displayScore?.toLocaleString() || 0}
                                     </div>
-                                    <div className="top-0 right-0 h-full flex items-center justify-end gap-1 transition-opacity duration-300 opacity-0 group-hover:opacity-100">
-                                        <span className="text-sm font-semibold text-blue-400">{entry.human_score}</span>
-                                        <span className="text-xs text-gray-400">+</span>
-                                        <span className="text-sm font-semibold text-purple-400">{entry.ai_score}</span>
-                                        <span className="text-xs text-purple-500 ml-1">(AI)</span>
-                                    </div>
+                                    
+                                    {/* --- HOVER BREAKDOWN --- */}
+                                    {/* Only appears when in 'total' mode */}
+                                    {mode === 'total' && (
+                                        <div className="absolute top-0 right-0 h-full flex items-center justify-end gap-1 transition-opacity duration-300 opacity-0 group-hover:opacity-100">
+                                            <span className="text-sm font-semibold text-blue-400">{entry.human_score}</span>
+                                            <span className="text-xs text-gray-400">+</span>
+                                            <span className="text-sm font-semibold text-purple-400">{entry.ai_score}</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -145,6 +166,17 @@ export default function Leaderboard() {
         <div className="bg-slate-800/40 backdrop-blur-sm rounded-xl p-5 border border-slate-700/50 h-full flex flex-col">
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-bold text-gray-200">Top Players</h3>
+                <div className="flex items-center p-1 bg-slate-900/50 rounded-lg">         
+                    <button
+                        onClick={handleModeToggle}
+                        className="px-3 py-1 text-sm font-medium rounded-lg bg-slate-700 hover:bg-slate-600 transition-all text-white flex items-center gap-2"
+                    >
+                    <span className={`font-semibold ${modeDetails[mode].color}`}>
+                        {modeDetails[mode].label}
+                    </span>
+                    <span className="text-gray-400">⇄</span>
+                    </button>
+                </div>
                 <button 
                     onClick={handleManualRefresh}
                     className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 disabled:opacity-50 transition-all"

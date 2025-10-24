@@ -201,35 +201,57 @@ class LeaderboardView(APIView):
     permission_classes = [permissions.AllowAny]
     
     def get(self, request):        
-        leaderboard_data = Game.objects.values(
-            'user__username'  # Group all games by the user's username
-        ).annotate(
-            # Sum of "ONLY HUMAN" matches
-            human_score=Sum(
-                Case(When(mode='manual', then='score'), default=0, output_field=IntegerField())
-            ),
-            # Sum of "ai" matches
-            ai_score=Sum(
-                Case(When(mode='ai', then='score'), default=0, output_field=IntegerField())
-            ),
-            total_score=Sum('score'),
-            games_played=Count('id') 
-        ).order_by('-total_score')[:10]  # Order by the total score descending, take top 10
+        mode = request.query_params.get('mode','human')
+        if mode == "ai":
+            # --- AI ONLY LEADERBOARD ---
+            ai_player_ids = Game.objects.filter(mode='ai').values_list('user_id', flat=True).distinct()
 
-        # The QuerySet to a list of dictionaries for the JSON response
-        # Rank is added here for convenience on the frontend
-        leaderboard_list = [
-            {
+            leaderboard_data = Game.objects.filter(
+                user_id__in=ai_player_ids
+            ).values('user__username').annotate(
+                human_score=Sum(Case(When(mode='manual', then='score'), default=0, output_field=IntegerField())),
+                ai_score=Sum(Case(When(mode='ai', then='score'), default=0, output_field=IntegerField())),
+                total_score=Sum('score'),
+                games_played=Count('id')
+            ).order_by('-ai_score')[:10]
+
+        elif mode == 'human':
+            # --- HUMAN-ONLY LEADERBOARD ---
+            #  Find all users who have ever played an AI game.
+            ai_player_ids = Game.objects.filter(mode='ai').values_list('user_id', flat=True).distinct()
+
+            #. Exclude those users, and only consider 'manual' games.
+            leaderboard_data = Game.objects.filter(
+                mode='manual'
+            ).exclude(
+                user_id__in=ai_player_ids
+            ).values('user__username').annotate(
+                total_score=Sum('score'),
+                games_played=Count('id')
+            ).order_by('-human_score')[:10]
+        
+        else:
+             leaderboard_data = Game.objects.values(
+                'user__username'  # Group all games by the user's username
+            ).annotate(
+                total_score=Sum('score'),
+                games_played=Count('id') 
+            ).order_by('-total_score')[:10] 
+
+
+        leaderboard_list = []
+        for index, entry in enumerate(leaderboard_data):
+            player_data = {
                 'rank': index + 1,
                 'username': entry['user__username'],
                 'total_score': entry['total_score'],
-                'human_score': entry['human_score'],
-                'ai_score': entry['ai_score'],
                 'games_played': entry['games_played'],
+                # For AI players, include the breakdown. For human players, these will be 0.
+                'human_score': entry.get('human_score', 0),
+                'ai_score': entry.get('ai_score', 0),
             }
-            for index, entry in enumerate(leaderboard_data)
-        ]
-        
+            leaderboard_list.append(player_data)
+
         return Response(leaderboard_list)
 
 # ----------------------------------------------------------------------
