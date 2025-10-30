@@ -9,6 +9,7 @@ class Game2048:
         self.ai_assisted = False
         self.add_random_tile()
         self.add_random_tile()
+        self.last_move = None
 
     def add_random_tile(self):
         empty = [(r,c) for r in range(4) for c in range(4) if self.board[r][c]==0]
@@ -122,8 +123,10 @@ class Game2048:
         # For debugging
         if moved:
             print(f"Move {direction} was valid, new score: {self.score}")
+            self.last_move = direction
         else:
             print(f"Move {direction} was invalid")
+            self.last_move = None
             
         # Return whether the move was valid
 

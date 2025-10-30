@@ -21,8 +21,6 @@ export default function App() {
 
     const gameBoardRef = useRef(null);
 
-    // Create the handler function that will be passed to AIList
-    // This function will use the ref to call the method we exposed in GameBoard
     const triggerAIHandler = ({ agent, num_moves }) => {
         console.log("App.jsx: AI handler triggered. Calling GameBoard's startAI function.");
         if (gameBoardRef.current) {
@@ -154,93 +152,110 @@ export default function App() {
     }
 
     return (
-        <div className="min-h-screen w-full bg-gradient-to-br from-gray-900 via-slate-900 to-gray-800">
-            <div className="w-full h-full px-4 py-4">
-                
-                {!authenticated ? (
-                    <div className="flex items-center justify-center min-h-screen -mt-20">
-                        <div className="w-full max-w-md bg-slate-800/50 backdrop-blur-sm rounded-2xl p-8 border border-slate-700/50 shadow-2xl">
-                            <div className="mb-6 flex gap-2 p-1 bg-slate-900/50 rounded-xl">
-                                <button 
-                                    onClick={() => setShowRegister(false)} 
-                                    className={`flex-1 px-6 py-2.5 rounded-lg font-medium transition-all ${!showRegister ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-gray-200'}`}
-                                >
-                                    Login
-                                </button>
-                                <button 
-                                    onClick={() => setShowRegister(true)} 
-                                    className={`flex-1 px-6 py-2.5 rounded-lg font-medium transition-all ${showRegister ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-400 hover:text-gray-200'}`}
-                                >
-                                    Register
-                                </button>
-                            </div>
-                            
-                            {showRegister ? (
-                                <Register onSuccess={handleAuthSuccess} />
-                            ) : (
-                                <Login onSuccess={handleAuthSuccess} />
-                            )}
-                        </div>
-                    </div>
-                ) : (
-                    <div className="h-full flex flex-col">
-                        <div className="flex items-center justify-between mb-4 p-4 bg-slate-800/40 backdrop-blur-sm rounded-xl border border-slate-700/50">
-                            <div className="flex items-center gap-4">
-                                <div className="text-gray-200">
-                                    <span className="text-sm text-gray-400">Welcome back,</span>
-                                    <div className="text-xl font-semibold text-blue-400">
-                                        {currentUser?.username || 'Player'}
-                                    </div>
-                                </div>
-                                
-                                <div className="flex gap-3 ml-4">
-                                    {currentUser?.points !== undefined && (
-                                        <div className="px-4 py-2 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/30 rounded-lg">
-                                            <div className="text-xs text-amber-400/70 font-medium">Balance</div>
-                                            <div className="text-lg font-bold text-amber-400">{currentUser.points}</div>
-                                        </div>
-                                    )}
-                                    
-                                    <div className="px-4 py-2 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border border-blue-500/30 rounded-lg">
-                                        <div className="text-xs text-blue-400/70 font-medium">Score</div>
-                                        <div className="text-lg font-bold text-blue-400">{currentGameScore}</div>
-                                    </div>
-                                </div>
-                            </div>
-                            
+        <div className="min-h-screen w-full bg-gradient-to-br from-gray-900 via-slate-900 to-gray-800 overflow-hidden">
+            {!authenticated ? (
+                <div className="flex items-center justify-center min-h-screen">
+                    <div className="w-full max-w-md bg-slate-800/50 backdrop-blur-sm rounded-2xl p-8 border border-slate-700/50 shadow-2xl">
+                        <div className="mb-6 flex gap-2 p-1 bg-slate-900/50 rounded-xl">
                             <button 
-                                onClick={handleLogout} 
-                                className="px-5 py-2 bg-red-600/80 hover:bg-red-600 text-white rounded-lg font-medium transition-all border border-red-500/30"
+                                onClick={() => setShowRegister(false)} 
+                                className={`flex-1 px-6 py-2.5 rounded-lg font-medium transition-all ${!showRegister ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-gray-200'}`}
                             >
-                                Logout
+                                Login
+                            </button>
+                            <button 
+                                onClick={() => setShowRegister(true)} 
+                                className={`flex-1 px-6 py-2.5 rounded-lg font-medium transition-all ${showRegister ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-400 hover:text-gray-200'}`}
+                            >
+                                Register
                             </button>
                         </div>
                         
-                        <div className="flex-1 grid grid-cols-12 gap-4">
-                            <div className="col-span-7 flex flex-col gap-4">
-                                <div className="flex-1">
-                                    <GameBoard 
-                                        ref={gameBoardRef} 
-                                        gameId={GAME_ENDPOINT_ID} 
-                                        onScoreUpdate={handleScoreUpdate}
-                                    />
-                                </div>
-                                <div className="h-auto">
-                                    <UserStats />
+                        {showRegister ? (
+                            <Register onSuccess={handleAuthSuccess} />
+                        ) : (
+                            <Login onSuccess={handleAuthSuccess} />
+                        )}
+                    </div>
+                </div>
+            ) : (
+                <div className="h-screen flex flex-col p-6">
+                    {/* Header - Compact and polished */}
+                    <div className="flex items-center justify-between mb-6 px-6 py-3 bg-slate-800/30 backdrop-blur-sm rounded-xl border border-slate-700/30 shadow-lg">
+                        <div className="flex items-center gap-6">
+                            <div className="text-gray-200">
+                                <span className="text-xs text-gray-400 uppercase tracking-wide">Welcome back,</span>
+                                <div className="text-lg font-bold text-blue-400">
+                                    {currentUser?.username || 'Player'}
                                 </div>
                             </div>
                             
-                            <div className="col-span-2">
+                            <div className="h-8 w-px bg-slate-600/50"></div>
+                            
+                            <div className="flex gap-3">
+                                {currentUser?.points !== undefined && (
+                                    <div className="px-4 py-1.5 bg-gradient-to-br from-amber-500/15 to-yellow-500/15 border border-amber-500/20 rounded-lg backdrop-blur-sm">
+                                        <div className="text-[10px] text-amber-400/60 font-medium uppercase tracking-wider">Balance</div>
+                                        <div className="text-base font-bold text-amber-400">{currentUser.points}</div>
+                                    </div>
+                                )}
+                                
+                                <div className="px-4 py-1.5 bg-gradient-to-br from-blue-500/15 to-cyan-500/15 border border-blue-500/20 rounded-lg backdrop-blur-sm">
+                                    <div className="text-[10px] text-blue-400/60 font-medium uppercase tracking-wider">Score</div>
+                                    <div className="text-base font-bold text-blue-400">{currentGameScore}</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button 
+                            onClick={handleLogout} 
+                            className="px-5 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 hover:text-red-300 rounded-lg font-medium transition-all border border-red-500/20 backdrop-blur-sm"
+                        >
+                            Logout
+                        </button>
+                    </div>
+                    
+                    {/* Main Content Grid - Single screen, no scrolling */}
+                    <div className="flex-1 grid grid-cols-12 gap-1 min-h-0">
+                        {/* Left Column - AI & Recent Matches */}
+                        <div className="col-span-3 flex flex-col gap-5 min-h-0">
+                            {/* AI Competitors - Top Left */}
+                            <div className="flex-1 min-h-0">
                                 <AIList onStartAI={triggerAIHandler} />
                             </div>
                             
-                            <div className="col-span-3">
-                                <Leaderboard /> 
+                            {/* Recent Matches - Bottom Left */}
+                            <div className="h-[45%]">
+                                <UserStats partition="matches" />
+                            </div>
+                        </div>
+                        
+                        {/* Center Column - Game Board */}
+                        <div className="col-span-6 flex items-center justify-center min-h-0">
+                            <div className="w-full h-full flex justify-center ">
+                                <GameBoard 
+                                    ref={gameBoardRef} 
+                                    gameId={GAME_ENDPOINT_ID} 
+                                    onScoreUpdate={handleScoreUpdate}
+                                />
+                            </div>
+                        </div>
+                        
+                        {/* Right Column - Leaderboard & User Stats */}
+                        <div className="col-span-3 flex flex-col gap-5 min-h-0">
+                            {/* Leaderboard - Top Right */}
+                            <div className="flex-1 min-h-0">
+                                <Leaderboard />
+                            </div>
+                            
+                            {/* User Stats - Bottom Right */}
+                            <div className="h-[45%]">
+                                <UserStats partition="stats" />
                             </div>
                         </div>
                     </div>
-                )}
-            </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -1,34 +1,34 @@
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { fetchAIModels, ensureSession, getCurrentUser, completeGame } from "../api/api.js";
 
+// Original
 const getTileColor = (value) => {
     switch (value) {
-        case 2: return "bg-gray-100 text-gray-800";
-        case 4: return "bg-yellow-100 text-gray-800";
-        case 8: return "bg-orange-300 text-white";
-        case 16: return "bg-orange-500 text-white";
-        case 32: return "bg-red-500 text-white";
-        case 64: return "bg-red-700 text-white";
-        case 128: return "bg-yellow-400 text-white shadow-xl";
-        case 256: return "bg-yellow-500 text-white shadow-xl";
-        case 512: return "bg-yellow-600 text-white shadow-xl";
-        case 1024: return "bg-yellow-700 text-white shadow-2xl";
-        case 2048: return "bg-yellow-800 text-white shadow-2xl";
-        // Extended tiles beyond 2048!
-        case 4096: return "bg-purple-600 text-white shadow-2xl";
-        case 8192: return "bg-purple-700 text-white shadow-2xl";
-        case 16384: return "bg-purple-900 text-white shadow-2xl";
-        case 32768: return "bg-pink-600 text-white shadow-2xl";
-        case 65536: return "bg-pink-800 text-white shadow-2xl";
-        case 131072: return "bg-indigo-700 text-white shadow-2xl";
+        case 2: return "bg-gray-500/15 text-gray-300 border border-gray-500/25";
+        case 4: return "bg-yellow-500/20 text-yellow-200 border border-yellow-500/30";
+        case 8: return "bg-orange-500/30 text-orange-100 border border-orange-500/40";
+        case 16: return "bg-orange-600/35 text-orange-50 border border-orange-600/45";
+        case 32: return "bg-red-500/40 text-red-100 border border-red-500/50";
+        case 64: return "bg-red-600/45 text-red-50 border border-red-600/55";
+        case 128: return "bg-yellow-400/50 text-yellow-50 border border-yellow-400/60 shadow-lg";
+        case 256: return "bg-yellow-500/55 text-white border border-yellow-500/65 shadow-lg";
+        case 512: return "bg-yellow-600/60 text-white border border-yellow-600/70 shadow-xl";
+        case 1024: return "bg-yellow-700/65 text-white border border-yellow-700/75 shadow-xl";
+        case 2048: return "bg-yellow-800/70 text-white border border-yellow-800/80 shadow-2xl";
+        case 4096: return "bg-purple-600/60 text-purple-50 border border-purple-600/70 shadow-2xl";
+        case 8192: return "bg-purple-700/65 text-purple-50 border border-purple-700/75 shadow-2xl";
+        case 16384: return "bg-purple-900/70 text-purple-100 border border-purple-900/80 shadow-2xl";
+        case 32768: return "bg-pink-600/70 text-pink-50 border border-pink-600/80 shadow-2xl";
+        case 65536: return "bg-pink-800/70 text-pink-50 border border-pink-800/80 shadow-2xl";
+        case 131072: return "bg-indigo-700/70 text-indigo-50 border border-indigo-700/80 shadow-2xl";
         default: 
-            // For any super high tiles (262144+)
             if (value > 131072) {
-                return "bg-black text-yellow-400 shadow-2xl border-4 border-yellow-400";
+                return "bg-black/50 text-yellow-300 shadow-2xl border-2 border-yellow-400/60";
             }
-            return "bg-gray-300 text-gray-700";
+            return "bg-slate-700/20 text-slate-400 border border-slate-600/30";
     }
 }
+
 
 const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
     const [board, setBoard] = useState(Array(4).fill(null).map(() => Array(4).fill(0)))
@@ -43,8 +43,10 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
     const [isAiAssisted, setIsAiAssisted] = useState(false);
 
     const [inPlaybackMode, setInPlaybackMode] = useState(false);
-    const [aiMoves, setAiMoves] = useState([]); // Stores the move sequence from the server
-    const [playbackIndex, setPlaybackIndex] = useState(0); // Tracks our current index in the playback
+    const [aiMoves, setAiMoves] = useState([]);
+    const [playbackIndex, setPlaybackIndex] = useState(0);
+    const [lastMoveDirection, setLastMoveDirection] = useState(null);
+    const [animationKey, setAnimationKey] = useState(0);
 
     const stateRef = useRef();
     stateRef.current = { over, inPlaybackMode, playbackIndex, aiMoves };
@@ -52,9 +54,7 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
     const gameStateRef = useRef({ wsOpen: false, over: false });
     const reconnectFnRef = useRef(null);
     const usernameRef = useRef(null);
-    // const prevOverRef = useRef(false); // Track previous "over" state
 
-    // Keep username ref in sync
     useEffect(() => {
         usernameRef.current = username;
     }, [username]);
@@ -73,7 +73,6 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
     };
 
     useImperativeHandle(ref, () => ({
-        // The parent will call this as "ref.current.startAI(...)"
         startAI: handleStartAI
     }));
 
@@ -106,12 +105,13 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
     const handlePreviousMove = () => {
         setPlaybackIndex(prevIndex => Math.max(prevIndex - 1, 0));
     };
+    
     const handleSkipToEnd = () => {
         if (aiMoves.length > 0) {
             setPlaybackIndex(aiMoves.length - 1);
         }
     };
-    // Fetch AI models list ONCE
+
     useEffect(() => {
         const loadModels = async () => {
             const result = await fetchAIModels();
@@ -122,41 +122,30 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
         loadModels();
     }, []);
 
-    // The corrected and simplified code:
-useEffect(() => {
-    // We only want to attempt saving when the game is over.
-    if (over && !gameSaved && username) {
-        
-        const save = async () => {
-            console.log('Game over detected - auto-saving game...');
-            
-            // 1. Immediately set the flag to prevent any other calls
-            setGameSaved(true); 
-            const gameMode = isAiAssisted ? 'ai' : 'manual';
-            const result = await completeGame(score, board, gameMode);
-            
-            if (result.success) {
-                console.log('✅ Game saved successfully!', result.data);
-                setSaveMessage(`🎉 Earned ${result.data.points_earned} points!`);
+    useEffect(() => {
+        if (over && !gameSaved && username) {
+            const save = async () => {
+                console.log('Game over detected - auto-saving game...');
+                setGameSaved(true); 
+                const gameMode = isAiAssisted ? 'ai' : 'manual';
+                const result = await completeGame(score, board, gameMode);
                 
-                setTimeout(() => setSaveMessage(''), 5000);
-                
-                window.dispatchEvent(new CustomEvent('game-completed', {
-                    detail: result.data
-                }));
-            } else {
-                console.error('❌ Failed to save game:', result.error);
-                setSaveMessage(`Failed to save game: ${result.error} 😔`);
-                // Optional: Allow the user to try saving again if it fails
-                // setGameSaved(false); 
-            }
-        };
+                if (result.success) {
+                    console.log('✅ Game saved successfully!', result.data);
+                    setSaveMessage(`🎉 Earned ${result.data.points_earned} points!`);
+                    setTimeout(() => setSaveMessage(''), 5000);
+                    window.dispatchEvent(new CustomEvent('game-completed', {
+                        detail: result.data
+                    }));
+                } else {
+                    console.error('❌ Failed to save game:', result.error);
+                    setSaveMessage(`Failed to save game: ${result.error} 😔`);
+                }
+            };
+            save();
+        }
+    }, [over, gameSaved, username, score, board, isAiAssisted]);
 
-        save();
-    }
-// Simplify the dependencies. This effect only needs to react to these state changes.
-}, [over, gameSaved, username, score, board, isAiAssisted]);
-    // Reset gameSaved when game restarts
     useEffect(() => {
         if (!over && gameSaved) {
             setGameSaved(false);
@@ -164,59 +153,45 @@ useEffect(() => {
         }
     }, [over, gameSaved]);
 
-    // Keep the ref updated with the latest state values
     useEffect(() => {
         gameStateRef.current = { wsOpen, over };
     }, [wsOpen, over]);
 
-    // WebSocket connection logic - ONLY runs once on mount
     useEffect(() => {
-
         const handleKey = (e) => {
-        let direction = '';
-        switch (e.key) {
-            case 'ArrowUp': direction = 'up'; break;
-            case 'ArrowDown': direction = 'down'; break;
-            case 'ArrowLeft': direction = 'left'; break;
-            case 'ArrowRight': direction = 'right'; break;
-            default: return;
-        }
-        e.preventDefault();
+            let direction = '';
+            switch (e.key) {
+                case 'ArrowUp': direction = 'up'; break;
+                case 'ArrowDown': direction = 'down'; break;
+                case 'ArrowLeft': direction = 'left'; break;
+                case 'ArrowRight': direction = 'right'; break;
+                default: return;
+            }
+            e.preventDefault();
 
-        const { over, inPlaybackMode, playbackIndex, aiMoves } = stateRef.current;
+            const { over, inPlaybackMode, playbackIndex, aiMoves } = stateRef.current;
 
-        // Condition 1: Normal gameplay
-        if (!inPlaybackMode && !over) {
-            sendMessage({ type: 'move', direction });
-            return;
-        }
+            if (!inPlaybackMode && !over) {
+                sendMessage({ type: 'move', direction });
+                return;
+            }
 
-        // Condition 2: In playback, but NOT on the final move yet
-        if (inPlaybackMode && playbackIndex < aiMoves.length - 1) {
-            console.log("Player move blocked during AI playback.");
-            return;
-        }
+            if (inPlaybackMode && playbackIndex < aiMoves.length - 1) {
+                console.log("Player move blocked during AI playback.");
+                return;
+            }
 
-        // Condition 3: In playback AND on the final AI move
-        if (inPlaybackMode && playbackIndex === aiMoves.length - 1) {
-            console.log("Final AI move reached. Player move will commit and resume gameplay.");
-            
-            // The user's move is the "auto-accept" action.
-            // Commit the AI's final state to the backend.
-            const finalAIState = aiMoves[playbackIndex];
-            sendMessage({
-                type: 'commit_ai_moves',
-                board: finalAIState.board,
-                score: finalAIState.score
-            });
-
-            // Send the player's new move immediately after.
-            // The backend will process these in order.
-            sendMessage({ type: 'move', direction });
-
-            // Finally, exit playback mode on the client.
-            setInPlaybackMode(false);
-            setAiMoves([]);
+            if (inPlaybackMode && playbackIndex === aiMoves.length - 1) {
+                console.log("Final AI move reached. Player move will commit and resume gameplay.");
+                const finalAIState = aiMoves[playbackIndex];
+                sendMessage({
+                    type: 'commit_ai_moves',
+                    board: finalAIState.board,
+                    score: finalAIState.score
+                });
+                sendMessage({ type: 'move', direction });
+                setInPlaybackMode(false);
+                setAiMoves([]);
             }
         }
 
@@ -278,20 +253,25 @@ useEffect(() => {
                             if (data.ai_assisted) {
                                 setIsAiAssisted(true);
                             }
-                            
                             if (data.username) {
                                 setUsername(data.username);
                             }
-                            
+                            if (data.last_move) {
+                                setAnimationKey(prev => prev + 1);
+                                setLastMoveDirection(data.last_move);
+                                
+                                
+                            }
                             if (onScoreUpdate) {
                                 onScoreUpdate(data.score);
-                            }}
+                            }
+                        }
                         else if (data.type === "ai_move_sequence") {
                             if (data.moves && data.moves.length > 0) {
                                 console.log("Received AI move sequence:", data.moves);
-                                setAiMoves(data.moves);       // Store the sequence of moves
-                                setInPlaybackMode(true);      // Playback mode activation
-                                setPlaybackIndex(0);          // Set playback index to 0
+                                setAiMoves(data.moves);
+                                setInPlaybackMode(true);
+                                setPlaybackIndex(0);
                                 setIsAiAssisted(true);
                             } else {
                                 console.log("AI returned no valid moves.");
@@ -300,9 +280,7 @@ useEffect(() => {
                         else if (data.type === "error") { 
                             console.error("Server Error:", data.message);
                             alert(`Error: ${data.message}`); 
-                            
                         }
-                        
                     } catch (err) {
                         console.error("Error parsing message:", err);
                     }
@@ -313,7 +291,6 @@ useEffect(() => {
                     setWsOpen(false);
                     console.log("%cWebSocket CLOSED", "color: orange;", "Code:", e.code);
                     
-                    // Don't auto-reconnect on normal closes
                     if (e.code === 1000 || e.code === 1001) {
                         return;
                     }
@@ -341,7 +318,6 @@ useEffect(() => {
             }
         };
         
-        // Store reconnect function in ref
         reconnectFnRef.current = () => {
             console.log("Manual reconnect triggered");
             if (wsRef.current) {
@@ -366,7 +342,6 @@ useEffect(() => {
         };
     }, [onScoreUpdate]); 
     
-    // Auth checking - completely separate from WebSocket
     useEffect(() => {
         console.log("Auth effect running (should only see this ONCE)");
         
@@ -389,16 +364,12 @@ useEffect(() => {
             
             if (authenticated && user && user.username) {
                 setUsername(user.username);
-                
-                // Only reconnect if this is a NEW login
                 if (!previousUsername && reconnectFnRef.current) {
                     console.log("New login detected - reconnecting");
                     setTimeout(() => reconnectFnRef.current(), 500);
                 }
             } else {
                 setUsername(null);
-                
-                // Only reconnect if user was logged in before
                 if (previousUsername && reconnectFnRef.current) {
                     console.log("Logout detected - reconnecting");
                     setTimeout(() => reconnectFnRef.current(), 500);
@@ -407,21 +378,18 @@ useEffect(() => {
         };
         
         window.addEventListener('auth-state-change', handleAuthChange);
-        
-        // Check auth less frequently to reduce API spam
-        const authCheckInterval = setInterval(checkAuth, 30000); // Every 30 seconds instead of 10
+        const authCheckInterval = setInterval(checkAuth, 30000);
         
         return () => {
             console.log("Auth effect cleanup");
             window.removeEventListener('auth-state-change', handleAuthChange);
             clearInterval(authCheckInterval);
         };
-    }, []); // Empty dependency array!
+    }, []);
 
     const handleRestart = () => {
         setIsAiAssisted(false);
         sendMessage({ type: 'restart' });
-        
     }
 
     const handleManualReconnect = () => {
@@ -440,96 +408,113 @@ useEffect(() => {
         ? aiMoves[playbackIndex].score
         : score;
 
+    // Get the direction to display - either from AI playback or regular gameplay
+    const currentMoveDirection = 
+        inPlaybackMode && aiMoves.length > 0
+        ? aiMoves[playbackIndex]?.move_made
+        : lastMoveDirection;
+
+    // Function to generate directional glow classes
+    // const getDirectionalGlow = (direction) => {
+    //     if (!direction) return '';
+        
+    //     const glowBase = 'transition-all duration-400';
+        
+    //     switch(direction) {
+    //         case 'up':
+    //             return `${glowBase} shadow-[0_-8px_24px_-4px_rgba(34,211,238,0.6)] border-t-2 border-t-cyan-400/50`;
+    //         case 'down':
+    //             return `${glowBase} shadow-[0_8px_24px_-4px_rgba(34,211,238,0.6)] border-b-2 border-b-cyan-400/50`;
+    //         case 'left':
+    //             return `${glowBase} shadow-[-8px_0_24px_-4px_rgba(34,211,238,0.6)] border-l-2 border-l-cyan-400/50`;
+    //         case 'right':
+    //             return `${glowBase} shadow-[8px_0_24px_-4px_rgba(34,211,238,0.6)] border-r-2 border-r-cyan-400/50`;
+    //         default:
+    //             return glowBase;
+    //     }
+    // };
+    const getDirectionalGlow = (direction) => {
+        if (!direction) return '';
+        switch(direction) {
+            case 'up': return 'glow-up border-t-cyan-400/30';
+            case 'down': return 'glow-down border-b-cyan-400/30';
+            case 'left': return 'glow-left border-l-cyan-400/30';
+            case 'right': return 'glow-right border-r-cyan-400/30';
+            default: return '';
+        }
+    };
+  
+
     return (
-        <div className="bg-white shadow-xl rounded-xl p-6 border-t-4 border-blue-500">
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold text-gray-800">2048 Game Board</h2>
-                {username && (
-                    <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
-                        Welcome, {username}!
-                    </div>
-                )}
-            </div>
+        <div className="bg-slate-800/50 backdrop-blur-md shadow-2xl rounded-2xl p-6 border border-slate-700/40 w-full max-w-xl">
+            {/* Connection Status - Top Center */}
+            
             
             {over && 
-                <div className="p-4 bg-red-100 border border-red-400 text-red-700 rounded mb-4 text-center">
+                <div className="p-4 bg-red-900/30 border border-red-500/40 text-red-300 rounded-lg mb-4 text-center backdrop-blur-sm">
                     <h3 className="text-2xl font-extrabold">Game Over!</h3>
                     <p className="text-lg">Final Score: {displayScore}</p>
                     {saveMessage && (
-                        <p className="mt-2 text-green-700 font-bold">{saveMessage}</p>
+                        <p className="mt-2 text-green-400 font-bold">{saveMessage}</p>
                     )}
                 </div>
             }
 
             {inPlaybackMode ? (
-            // --- RENDER THIS WHEN IN PLAYBACK MODE ---
-            <div className="bg-purple-100 border-2 border-purple-300 p-3 rounded-lg mb-4 text-center shadow-lg animate-pulse">
-                <h4 className="text-lg font-bold text-purple-800">Playback Mode</h4>
-                <div className="flex justify-center items-center gap-4 mt-2">
-                    <button 
-                        onClick={handlePreviousMove} 
-                        disabled={playbackIndex === 0}
-                        className="px-4 py-2 bg-purple-500 text-white rounded-lg font-semibold transition hover:bg-purple-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                    >
-                        &larr; Previous
-                    </button>
-                    <span className="font-mono text-lg text-purple-800">
-                        Move {playbackIndex + 1} / {aiMoves.length}
-                    </span>
-                    <button 
-                        onClick={handleNextMove}
-                        disabled={playbackIndex >= aiMoves.length - 1}
-                        className="px-4 py-2 bg-purple-500 text-white rounded-lg font-semibold transition hover:bg-purple-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                    >
-                        Next &rarr;
-                    </button>
-                </div>
-                {playbackIndex < aiMoves.length - 1 && (
-                    <div className="mt-3">
-                         <button 
-                            onClick={handleSkipToEnd} 
-                            className="px-4 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full text-sm font-semibold transition shadow-sm"
+                <div className="bg-purple-900/30 border-2 border-purple-500/40 p-4 rounded-lg mb-4 text-center backdrop-blur-sm">
+                    <h4 className="text-lg font-bold text-purple-300">Playback Mode</h4>
+                    <div className="flex justify-center items-center gap-4 mt-3">
+                        <button 
+                            onClick={handlePreviousMove} 
+                            disabled={playbackIndex === 0}
+                            className="px-4 py-2 bg-purple-600 text-white rounded-lg font-semibold transition hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed"
                         >
-                            Skip &raquo;
+                            &larr; Previous
+                        </button>
+                        <span className="font-mono text-lg text-purple-300">
+                            Move {playbackIndex + 1} / {aiMoves.length}
+                        </span>
+                        <button 
+                            onClick={handleNextMove}
+                            disabled={playbackIndex >= aiMoves.length - 1}
+                            className="px-4 py-2 bg-purple-600 text-white rounded-lg font-semibold transition hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed"
+                        >
+                            Next &rarr;
                         </button>
                     </div>
-                )}
-                {playbackIndex === aiMoves.length - 1 && (
-                    <p className="text-sm text-green-600 mt-2 font-semibold">
-                        You are at the final move. Use arrow keys to continue playing.
-                    </p>
-                )}
-            </div>
-        ) : (
-            // --- RENDER THIS WHEN IN LIVE MODE ---
-            <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center">
-                    <p className={`text-sm font-medium ${wsOpen ? 'text-green-600' : 'text-red-600'} mr-2`}>
-                        Connection: {wsOpen ? 'Live' : 'Closed'}
-                    </p>
-                    {!wsOpen && (
-                        <button 
-                            onClick={handleManualReconnect}
-                            className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-2 py-1 rounded transition duration-300"
-                        >
-                            Reconnect
-                        </button>
+                    {playbackIndex < aiMoves.length - 1 && (
+                        <div className="mt-3">
+                             <button 
+                                onClick={handleSkipToEnd} 
+                                className="px-4 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full text-sm font-semibold transition"
+                            >
+                                Skip &raquo;
+                            </button>
+                        </div>
+                    )}
+                    {playbackIndex === aiMoves.length - 1 && (
+                        <p className="text-sm text-green-400 mt-2 font-semibold">
+                            You are at the final move. Use arrow keys to continue playing.
+                        </p>
                     )}
                 </div>
-                <button 
-                    onClick={handleRestart} 
-                    className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-semibold transition duration-300 shadow-md"
-                    disabled={!wsOpen}
-                >
-                    Restart Game
-                </button>
-            </div>
-        )}
+            ) : (
+            <div className="flex justify-center mb-6">
+                <div className={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-300 ${
+                    wsOpen 
+                        ? 'bg-green-500/20 text-green-400 border border-green-500/30 animate-pulse' 
+                        : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                }`}>
+                    Connection: {wsOpen ? 'Live' : 'Closed'}
+                </div>
+            </div>)}
             
-            <div className="grid grid-cols-4 gap-2 w-full max-w-sm mx-auto p-2 bg-gray-400 rounded-lg shadow-inner">
+            {/* Game Board */}
+            <div key = {animationKey} 
+                className={`grid grid-cols-4 gap-3 w-full p-4 bg-slate-700/50 rounded-xl shadow-inner mb-6 ${getDirectionalGlow(currentMoveDirection)}`}>
                 {displayBoard.flat().map((cell, idx) => {
                     const isMegaTile = cell >= 4096;
-                    const fontSize = cell >= 8192 ? 'text-xl' : cell >= 1024 ? 'text-2xl' : 'text-2xl';
+                    const fontSize = cell >= 8192 ? 'text-xl' : cell >= 1024 ? 'text-2xl' : 'text-3xl';
                     
                     return (
                         <div 
@@ -552,6 +537,27 @@ useEffect(() => {
                     );
                 })}
             </div>
+
+            {/* Bottom Buttons */}
+            {!inPlaybackMode ? (
+                <div className="flex gap-3 justify-center">
+                <button 
+                    className="flex-1 bg-blue-600/80 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300 shadow-md border border-blue-500/30"
+                    disabled={!wsOpen}
+                >
+                    Get AI Moves
+                </button>
+                <button 
+                    onClick={handleRestart} 
+                    className="flex-1 bg-green-600/80 hover:bg-green-600 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300 shadow-md border border-green-500/30"
+                    disabled={!wsOpen}
+                >
+                    Restart Game
+                </button>
+                
+            </div>
+            ) : null}
+            
         </div>
     )
 });

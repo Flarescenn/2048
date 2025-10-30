@@ -127,8 +127,6 @@ export const registerUser = async (username, password) => {
     }
 }
 
-// --- EXISTING FUNCTIONS (Unchanged, but provided for completeness) ---
-
 /**
  * Fetches the list of available AI Models. (Now publicly accessible if views.py was updated)
  */

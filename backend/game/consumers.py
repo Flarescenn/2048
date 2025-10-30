@@ -130,7 +130,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                                     "board": game.board,
                                     "score": game.score,
                                     "over": game.over,
-                                    "ai_assisted": self.game.ai_assisted 
+                                    "ai_assisted": self.game.ai_assisted,
+                                    "last_move": self.game.last_move
                                 }
                             )
                         else:
@@ -288,7 +289,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                 "score": self.game.score,
                 "over": self.game.over,
                 "username": self.authenticated_username,
-                "ai_assisted": self.game.ai_assisted
+                "ai_assisted": self.game.ai_assisted,
+                "last_move": self.game.last_move
             }))
             print(f"Sent initial game state for {self.game_key}")
             
@@ -372,7 +374,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                                     "score": self.game.score,
                                     "over": self.game.over,
                                     "username": self.authenticated_username,
-                                    "ai_assisted": self.game.ai_assisted 
+                                    "ai_assisted": self.game.ai_assisted,
+                                    "last_move": self.game.last_move
                                 }
                             )
                         else:
@@ -440,7 +443,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                             "board": self.game.board,
                             "score": self.game.score,
                             "over": self.game.over,
-                            "ai_assisted": self.game.ai_assisted 
+                            "ai_assisted": self.game.ai_assisted,
+                            "last_move": self.game.last_move
                         }
                     )
                 else:
@@ -476,7 +480,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                             "score": self.game.score,
                             "over": self.game.over,
                             "username": self.authenticated_username,
-                            "ai_assisted": self.game.ai_assisted 
+                            "ai_assisted": self.game.ai_assisted,
+                            "last_move": self.game.last_move
                         }
                     )
                 else:
@@ -501,7 +506,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                 "score": event["score"], 
                 "over": event["over"],
                 "username": event.get("username"),
-                "ai_assisted": event.get("ai_assisted", False)
+                "ai_assisted": event.get("ai_assisted", False),
+                "last_move": event.get("last_move")
             }))
         except Exception as e:
             print(f"Error in broadcast_state: {str(e)}")
