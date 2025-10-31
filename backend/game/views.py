@@ -295,7 +295,52 @@ class LogoutView(APIView):
         )
         
         return response
-# game/views.py - ADD THESE TO YOUR EXISTING FILE (keep all your existing views)
+    
+    
+class UserAIProfileView(APIView):
+    """
+    Handles getting and setting a user's equipped AI and custom configurations.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        """Return the user's current AI profile."""
+        profile, created = Profile.objects.get_or_create(user=request.user)
+        
+        equipped_ai_data = None
+        # If an AI is equipped, serialize its data to send to the frontend
+        if profile.equipped_ai:
+            equipped_ai_data = AISerializer(profile.equipped_ai).data
+
+        response_data = {
+            'equipped_ai': equipped_ai_data,
+            'ai_configs': profile.ai_configs
+        }
+        return Response(response_data)
+
+    def post(self, request):
+        """Update the user's AI profile."""
+        profile, created = Profile.objects.get_or_create(user=request.user)
+
+        # Get data from the request
+        equipped_ai_id = request.data.get('equipped_ai_id')
+        new_configs = request.data.get('configs')
+
+        # Validate that the AI model exists
+        try:
+            ai_model = AIModel.objects.get(id=equipped_ai_id)
+            profile.equipped_ai = ai_model
+        except AIModel.DoesNotExist:
+            return Response({"error": "Invalid AI Model ID."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update the configurations
+        if isinstance(new_configs, dict):
+            profile.ai_configs[str(equipped_ai_id)] = new_configs
+        
+        profile.save()
+
+        return Response({"success": "AI profile updated."})
+    
 
 from rest_framework.views import APIView
 from rest_framework.response import Response

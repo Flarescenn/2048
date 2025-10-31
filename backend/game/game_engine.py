@@ -165,3 +165,7 @@ class Game2048:
     def clone(self):
         # Creates a deep copy of the current game instance
         return copy.deepcopy(self)
+    
+    def get_empty_cells(self):
+        # Returns a list of (row, col) tuples for all empty cells.
+        return [(r, c) for r in range(4) for c in range(4) if self.board[r][c] == 0]

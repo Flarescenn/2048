@@ -541,12 +541,12 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
             {/* Bottom Buttons */}
             {!inPlaybackMode ? (
                 <div className="flex gap-3 justify-center">
-                <button 
+                {/* <button 
                     className="flex-1 bg-blue-600/80 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300 shadow-md border border-blue-500/30"
                     disabled={!wsOpen}
                 >
                     Get AI Moves
-                </button>
+                </button> */}
                 <button 
                     onClick={handleRestart} 
                     className="flex-1 bg-green-600/80 hover:bg-green-600 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300 shadow-md border border-green-500/30"

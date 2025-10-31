@@ -175,6 +175,45 @@ export const purchaseAI = async (ai_model_id) => {
         };
     }
 }
+export const getUserAiProfile = async () => {
+  try {
+    const response = await axios.get(`${API_BASE}/user-ai-profile/`);
+    // The backend sends an object like: { equipped_ai: {...}, ai_configs: {...} }
+    // We also need to get the list of unlocked AI IDs for the UI.
+    const unlockedResponse = await axios.get(`${API_BASE}/ai-models/`); // Re-using the models list endpoint
+    
+    const unlockedIds = unlockedResponse.data.filter(model => model.unlocked).map(model => model.id);
+
+    return { 
+      success: true, 
+      data: {
+        ...response.data,
+        unlocked: unlockedIds, // Add the list of unlocked IDs
+      }
+    };
+  } catch (error) {
+    console.error("Failed to fetch user AI profile:", error);
+    return { success: false, error: error.response?.data?.error || error.message };
+  }
+};
+/**
+ * Saves the user's AI configuration.
+ * @param {number} equippedAiId - The ID of the AI model to equip.
+ * @param {object} configs - The dictionary of custom slider values for this AI.
+ */
+export const saveUserAiProfile = async (equippedAiId, configs) => {
+  try {
+    const payload = {
+      equipped_ai_id: equippedAiId,
+      configs: configs
+    };
+    const response = await axios.post(`${API_BASE}/user-ai-profile/`, payload);
+    return { success: true, data: response.data };
+  } catch (error) {
+    console.error("Failed to save user AI profile:", error);
+    return { success: false, error: error.response?.data?.error || error.message };
+  }
+};
 
 export const getLeaderboard = async (mode) => {
     try {

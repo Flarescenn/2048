@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import GameBoard from "./Components/GameBoard.jsx";
-import AIList from "./Components/AIList.jsx";
+// import AIList from "./Components/AIList.jsx"; Rip
+import EquippedAI from "./Components/EquippedAI.jsx"; 
+import AIDrawer from "./Components/AIDrawer.jsx"; 
+
 import Leaderboard from "./Components/Leaderboard.jsx";
 import UserStats from "./Components/UserStats.jsx";
 import Login from "./Components/Login.jsx";
@@ -15,16 +18,17 @@ export default function App() {
     const [currentUser, setCurrentUser] = useState(null); 
     const [loading, setLoading] = useState(true); 
     const [currentGameScore, setCurrentGameScore] = useState(0); 
+    const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
 
     const authStateRef = useRef({ authenticated: false, username: null });
     const GAME_ENDPOINT_ID = "game_instance"; 
 
     const gameBoardRef = useRef(null);
 
-    const triggerAIHandler = ({ agent, num_moves }) => {
+    const triggerAIHandler = ({ num_moves }) => {
         console.log("App.jsx: AI handler triggered. Calling GameBoard's startAI function.");
         if (gameBoardRef.current) {
-            gameBoardRef.current.startAI({ agent, num_moves });
+            gameBoardRef.current.startAI({ num_moves });
         } else {
             console.error("Could not find GameBoard component reference.");
         }
@@ -221,7 +225,10 @@ export default function App() {
                         <div className="col-span-3 flex flex-col gap-5 min-h-0">
                             {/* AI Competitors - Top Left */}
                             <div className="flex-1 min-h-0">
-                                <AIList onStartAI={triggerAIHandler} />
+                                <EquippedAI 
+                                    onOpenDrawer={() => setIsAiDrawerOpen(true)} 
+                                    onStartAI={triggerAIHandler} 
+                                />
                             </div>
                             
                             {/* Recent Matches - Bottom Left */}
@@ -253,7 +260,12 @@ export default function App() {
                                 <UserStats partition="stats" />
                             </div>
                         </div>
+                        
                     </div>
+                    <AIDrawer 
+                        isOpen={isAiDrawerOpen} 
+                        onClose={() => setIsAiDrawerOpen(false)} 
+                    /> 
                 </div>
             )}
         </div>

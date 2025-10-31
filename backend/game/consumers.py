@@ -5,6 +5,7 @@ from .game_engine import Game2048
 import asyncio
 
 from .models import AIModel, UserUnlocked, GameState
+from users.models import Profile
 
 # Try to import AGENTS, but continue without them if not available
 try:
@@ -38,6 +39,29 @@ class GameConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             print(f"Error unlocking AI: {e}")
             return False
+    
+    @database_sync_to_async
+    def get_user_ai_params(self):
+        """Fetches the user's equipped AI and its combined parameters."""
+        try:
+            profile = Profile.objects.get(user_id=self.user_id)
+            if not profile.equipped_ai:
+                return None, None # No AI equipped
+
+            ai_model = profile.equipped_ai
+            
+            # Start with the AI's non-tunable base parameters (e.g., depth)
+            final_params = ai_model.base_params.copy()
+            
+            # Get the user's custom slider settings for this AI
+            user_specific_configs = profile.ai_configs.get(str(ai_model.id), {})
+            
+            # Merge the user's settings into the final parameters
+            final_params.update(user_specific_configs)
+            
+            return ai_model.agent_class, final_params
+        except Profile.DoesNotExist:
+            return None, None
         
     @database_sync_to_async
     def save_game_state(self, user_id, board, score, is_over, ai_assisted):
@@ -388,26 +412,26 @@ class GameConsumer(AsyncWebsocketConsumer):
                             }))
                         
             elif data.get("type") == "get_ai_moves":
-                agent_name = data.get("agent")
+                # agent_name = data.get("agent")
                 num_moves = int(data.get("num_moves", 5))
 
                 # User must be logged in
                 if not self.user_id:
                     await self.send(text_data=json.dumps({"type": "error", "message": "You must be logged in to use AI."}))
                     return
-
-                # Must have unlocked the AI
-                is_unlocked = await self.check_ai_unlocked(self.user_id, agent_name)
-                if not is_unlocked:
-                    await self.send(text_data=json.dumps({"type": "error", "message": f"AI '{agent_name}' is not unlocked."}))
-                    return
                 
-                # All tests passed
+                agent_class_name, params = await self.get_user_ai_params()
 
-                agent_cls = AGENTS.get(agent_name.lower())
-                if not agent_cls:
-                    await self.send(text_data=json.dumps({"type": "error", "message": f"AI agent '{agent_name}' not found."}))
+                if not agent_class_name:
+                    await self.send(text_data=json.dumps({"type": "error", "message": "No AI is equipped."}))
                     return
+
+                agent_cls = AGENTS.get(agent_class_name.lower())
+
+                if not agent_cls:
+                    await self.send(text_data=json.dumps({"type": "error", "message": f"AI agent '{agent_class_name}' not found."}))
+                    return
+            
                 self.game.ai_assisted = True
                 await self.save_game_state(
                     self.user_id, self.game.board, self.game.score, self.game.over, self.game.ai_assisted
@@ -415,7 +439,7 @@ class GameConsumer(AsyncWebsocketConsumer):
                 print(f"Game for user {self.user_id} is now flagged as AI-Assisted.")
                 agent = agent_cls()
                 # Gets the move seqeuences (list of dictionaries ie the game states)
-                move_sequence = agent.get_move_sequence(self.game, num_moves)
+                move_sequence = agent.get_move_sequence(self.game, num_moves, params)
 
                 await self.send(text_data=json.dumps({"type": "ai_move_sequence", "moves": move_sequence}))
             
