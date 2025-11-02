@@ -63,9 +63,9 @@ class Game2048:
         self.board = new_board
         
         # Add a new tile if the board changed
-        if moved:
-            self.add_random_tile()
-            print("Added random tile after move")
+        # if moved:
+        #     self.add_random_tile()
+        #     print("Added random tile after move")
             
         return moved
 
@@ -122,6 +122,7 @@ class Game2048:
         
         # For debugging
         if moved:
+            self.add_random_tile()
             print(f"Move {direction} was valid, new score: {self.score}")
             self.last_move = direction
         else:
@@ -169,3 +170,35 @@ class Game2048:
     def get_empty_cells(self):
         # Returns a list of (row, col) tuples for all empty cells.
         return [(r, c) for r in range(4) for c in range(4) if self.board[r][c] == 0]
+    
+    def simulate_move(self, direction):
+        """
+        Performs a move and updates the board, BUT DOES NOT add a random tile.
+        This is for AI simulation purposes only. Returns True if the board changed.
+        """
+        board_before_move = [list(row) for row in self.board]
+
+        # This reuses the same core logic as the main `move` method
+        # but omits the `add_random_tile()` step.
+        if direction == 'up':
+            self.board = [list(row) for row in zip(*self.board)] 
+            self.move_left() 
+            self.board = [list(row) for row in zip(*self.board)]
+        elif direction == 'down':
+            self.board = [list(row) for row in zip(*self.board)] 
+            self.board = [row[::-1] for row in self.board]
+            self.move_left() 
+            self.board = [row[::-1] for row in self.board]
+            self.board = [list(row) for row in zip(*self.board)]
+        elif direction == 'right':
+            self.board = [row[::-1] for row in self.board]
+            self.move_left()
+            self.board = [row[::-1] for row in self.board]
+        elif direction == 'left': 
+            self.move_left()
+        
+        moved = self.board != board_before_move
+        if moved:
+            self.over = self.is_game_over()
+        
+        return moved

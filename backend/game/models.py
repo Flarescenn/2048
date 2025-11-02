@@ -8,7 +8,7 @@ class AIModel(models.Model):
     cost = models.IntegerField(default=0)
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    base_params = models.JSONField(default=dict)    # Parameters are "fixed" to the specific version of the agent
+    base_params = models.JSONField(default=dict, blank=True)    # Parameters are "fixed" to the specific version of the agent
     tunable_params = models.JSONField(default=dict)
 
     

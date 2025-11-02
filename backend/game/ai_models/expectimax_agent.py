@@ -50,7 +50,7 @@ class ExpectimaxAgent(BaseAgent):
             sim_game = game_instance.clone()
             
             # If the move is valid and changes the board
-            if sim_game.move(move):
+            if sim_game.simulate_move(move):
                 # Calculate the score for this move's outcome.
                 # It's now the computer's turn, so is_player_turn is False.
                 score = self.expectimax(sim_game, depth - 1, False, params)
@@ -78,7 +78,7 @@ class ExpectimaxAgent(BaseAgent):
             max_score = -float('inf')
             for move in ['up', 'down', 'left', 'right']:
                 sim_game = game_instance.clone()
-                if sim_game.move(move):
+                if sim_game.simulate_move(move):
                     score = self.expectimax(sim_game, depth - 1, False, params)
                     max_score = max(max_score, score)
             return max_score

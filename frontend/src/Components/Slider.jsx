@@ -55,7 +55,9 @@ export default function Slider({ label, value, min, max, step, onChange }) {
         <div>
             <div className="flex justify-between items-center mb-1">
                 <label className="text-sm font-medium text-gray-300">{label}</label>
-                <span className="font-mono text-base font-semibold text-purple-300">{value}</span>
+                <span className="font-mono text-base font-semibold text-purple-300">
+                    {parseFloat(value).toFixed(2)}
+                </span>
             </div>
             <div
                 ref={trackRef}

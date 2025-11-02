@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import GameBoard from "./Components/GameBoard.jsx";
-// import AIList from "./Components/AIList.jsx"; Rip
 import EquippedAI from "./Components/EquippedAI.jsx"; 
 import AIDrawer from "./Components/AIDrawer.jsx"; 
-
 import Leaderboard from "./Components/Leaderboard.jsx";
 import UserStats from "./Components/UserStats.jsx";
 import Login from "./Components/Login.jsx";
@@ -19,11 +17,12 @@ export default function App() {
     const [loading, setLoading] = useState(true); 
     const [currentGameScore, setCurrentGameScore] = useState(0); 
     const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
+    const [gameConnection, setGameConnection] = useState(false); // NEW: Track WebSocket connection
 
     const authStateRef = useRef({ authenticated: false, username: null });
     const GAME_ENDPOINT_ID = "game_instance"; 
-
     const gameBoardRef = useRef(null);
+    const authCheckIntervalRef = useRef(null);
 
     const triggerAIHandler = ({ num_moves }) => {
         console.log("App.jsx: AI handler triggered. Calling GameBoard's startAI function.");
@@ -37,20 +36,15 @@ export default function App() {
     useEffect(() => {
         console.log("App.jsx: Setting up authentication monitoring (should see this ONCE)");
         
-        const dispatchAuthEvent = (isAuthenticated, userData) => {
-            const authEvent = new CustomEvent('auth-state-change', {
-                detail: {
-                    authenticated: isAuthenticated,
-                    user: userData
-                }
-            });
-            console.log(`Dispatching auth event: authenticated=${isAuthenticated}, user=${userData?.username || 'none'}`);
-            window.dispatchEvent(authEvent);
-        };
+        let mounted = true;
 
         const checkAuth = async () => {
+            if (!mounted) return;
+            
             try {
                 const user = await fetchCurrentUser(); 
+                
+                if (!mounted) return;
                 
                 const wasAuthenticated = authStateRef.current.authenticated;
                 const prevUsername = authStateRef.current.username;
@@ -62,8 +56,14 @@ export default function App() {
                     
                     authStateRef.current = { authenticated: true, username: user.username };
                     
+                    // Only reconnect if this is a NEW login (not just a periodic check)
                     if (!wasAuthenticated || prevUsername !== user.username) {
-                        dispatchAuthEvent(true, user);
+                        console.log("Auth state changed - triggering reconnect");
+                        setTimeout(() => {
+                            if (mounted && gameBoardRef.current) {
+                                gameBoardRef.current.reconnect();
+                            }
+                        }, 500);
                     }
                 } else {
                     console.log("No authenticated user found");
@@ -72,38 +72,63 @@ export default function App() {
                     
                     authStateRef.current = { authenticated: false, username: null };
                     
+                    // Only reconnect if user WAS logged in before (logout happened)
                     if (wasAuthenticated) {
-                        dispatchAuthEvent(false, null);
+                        console.log("Logout detected - triggering WebSocket reconnect.");
+                        setTimeout(() => {
+                            if (mounted && gameBoardRef.current) {
+                                gameBoardRef.current.reconnect();
+                            }
+                        }, 500);
                     }
                 }
             } catch (error) {
+                if (!mounted) return;
+                
                 console.error("Authentication check failed:", error);
                 setAuthenticated(false);
                 setCurrentUser(null);
                 authStateRef.current = { authenticated: false, username: null };
-                
-                if (authStateRef.current.authenticated) {
-                    dispatchAuthEvent(false, null);
-                }
             } finally {
-                setLoading(false);
+                if (mounted) {
+                    setLoading(false);
+                }
             }
         };
         
+        // Initial auth check
         checkAuth();
-        const authCheckInterval = setInterval(checkAuth, 30000);
+        
+        // Periodic auth check every 30 seconds
+        // This helps detect session expiration
+        authCheckIntervalRef.current = setInterval(() => {
+            if (mounted) {
+                checkAuth();
+            }
+        }, 30000);
         
         return () => {
             console.log("App.jsx: Cleaning up auth monitoring");
-            clearInterval(authCheckInterval);
+            mounted = false;
+            if (authCheckIntervalRef.current) {
+                clearInterval(authCheckIntervalRef.current);
+                authCheckIntervalRef.current = null;
+            }
         };
-    }, []);
+    }, []); // Empty array is correct - we want this to run once
 
     const handleAuthSuccess = (userData) => {
         console.log("Auth success handler called with:", userData);
         setAuthenticated(true);
         setCurrentUser(userData);
         authStateRef.current = { authenticated: true, username: userData.username };
+        
+        // Trigger WebSocket reconnect after successful login
+        setTimeout(() => {
+            if (gameBoardRef.current) {
+                gameBoardRef.current.reconnect();
+            }
+        }, 500);
     };
 
     const handleLogout = async () => {
@@ -117,11 +142,14 @@ export default function App() {
             setCurrentGameScore(0);
             authStateRef.current = { authenticated: false, username: null };
             
-            const authEvent = new CustomEvent('auth-state-change', {
-                detail: { authenticated: false, user: null }
-            });
-            window.dispatchEvent(authEvent);
+            // Trigger WebSocket reconnect after logout
+            setTimeout(() => {
+                if (gameBoardRef.current) {
+                    gameBoardRef.current.reconnect();
+                }
+            }, 500);
             
+            // Verify logout after a short delay
             setTimeout(async () => {
                 try {
                     console.log("Post-logout authentication check");
@@ -137,7 +165,7 @@ export default function App() {
                 } catch (error) {
                     console.error("Post-logout auth check failed:", error);
                 }
-            }, 500);
+            }, 1000);
         } catch (error) {
             console.error("Logout failed:", error);
         }
@@ -145,6 +173,10 @@ export default function App() {
     
     const handleScoreUpdate = (newScore) => {
         setCurrentGameScore(newScore);
+    };
+    
+    const handleConnectionChange = (isConnected) => {
+        setGameConnection(isConnected);
     };
     
     if (loading) {
@@ -204,9 +236,20 @@ export default function App() {
                                     </div>
                                 )}
                                 
-                                <div className="px-4 py-1.5 bg-gradient-to-br from-blue-500/15 to-cyan-500/15 border border-blue-500/20 rounded-lg backdrop-blur-sm">
+                                {/* <div className="px-4 py-1.5 bg-gradient-to-br from-blue-500/15 to-cyan-500/15 border border-blue-500/20 rounded-lg backdrop-blur-sm">
                                     <div className="text-[10px] text-blue-400/60 font-medium uppercase tracking-wider">Score</div>
                                     <div className="text-base font-bold text-blue-400">{currentGameScore}</div>
+                                </div> */}
+                                
+                                {/* NEW: Connection Status in Navbar */}
+                                <div className="px-4 py-1.5 bg-gradient-to-br from-slate-500/15 to-slate-600/15 border border-slate-500/20 rounded-lg backdrop-blur-sm">
+                                    <div className="text-[10px] text-slate-400/60 font-medium uppercase tracking-wider">Game</div>
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-2 h-2 rounded-full ${gameConnection ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></div>
+                                        <div className={`text-sm font-bold ${gameConnection ? 'text-green-400' : 'text-red-400'}`}>
+                                            {gameConnection ? 'Live' : 'Offline'}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -244,6 +287,8 @@ export default function App() {
                                     ref={gameBoardRef} 
                                     gameId={GAME_ENDPOINT_ID} 
                                     onScoreUpdate={handleScoreUpdate}
+                                    onConnectionChange={handleConnectionChange}
+                                    username={currentUser?.username}
                                 />
                             </div>
                         </div>

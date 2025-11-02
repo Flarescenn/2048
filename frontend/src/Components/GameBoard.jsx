@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
-import { fetchAIModels, ensureSession, getCurrentUser, completeGame } from "../api/api.js";
+import { ensureSession, completeGame } from "../api/api.js";
 
-// Original
 const getTileColor = (value) => {
     switch (value) {
         case 2: return "bg-gray-500/15 text-gray-300 border border-gray-500/25";
@@ -29,15 +28,12 @@ const getTileColor = (value) => {
     }
 }
 
-
-const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
+const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, ref) => {
     const [board, setBoard] = useState(Array(4).fill(null).map(() => Array(4).fill(0)))
     const [score, setScore] = useState(0)
     const [over, setOver] = useState(false)
     const wsRef = useRef(null);
     const [wsOpen, setWsOpen] = useState(false);
-    const [models, setModels] = useState([]);
-    const [username, setUsername] = useState(null);
     const [gameSaved, setGameSaved] = useState(false);
     const [saveMessage, setSaveMessage] = useState('');
     const [isAiAssisted, setIsAiAssisted] = useState(false);
@@ -48,33 +44,12 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
     const [lastMoveDirection, setLastMoveDirection] = useState(null);
     const [animationKey, setAnimationKey] = useState(0);
 
+    const isReconnectingRef = useRef(false);
+    const reconnectTimeoutRef = useRef(null);
+    const mountedRef = useRef(true);
+
     const stateRef = useRef();
     stateRef.current = { over, inPlaybackMode, playbackIndex, aiMoves };
-
-    const gameStateRef = useRef({ wsOpen: false, over: false });
-    const reconnectFnRef = useRef(null);
-    const usernameRef = useRef(null);
-
-    useEffect(() => {
-        usernameRef.current = username;
-    }, [username]);
-
-    const handleStartAI = ({ agent, num_moves }) => {
-        if (over || inPlaybackMode) {
-            console.log("Cannot start AI while game is over or in playback mode.");
-            return;
-        }
-        console.log(`Requesting ${num_moves} moves from ${agent}...`);
-        sendMessage({
-            type: 'get_ai_moves',
-            agent: agent,
-            num_moves: num_moves
-        });
-    };
-
-    useImperativeHandle(ref, () => ({
-        startAI: handleStartAI
-    }));
 
     const getCookie = (name) => {
         if (!document.cookie) {
@@ -111,16 +86,222 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
             setPlaybackIndex(aiMoves.length - 1);
         }
     };
+    const handleCancelPlayback = () => {
+        console.log("Canceling AI playback. Reverting to original board.");
+        // Simply exit playback mode. The `displayBoard` will automatically
+        // revert to showing the original `board` state.
+        setInPlaybackMode(false);
+        setAiMoves([]); // Clear the AI moves from memory
+    };
 
-    useEffect(() => {
-        const loadModels = async () => {
-            const result = await fetchAIModels();
-            if (result.success) {
-                setModels(result.data);
+    const handleAcceptMoves = () => {
+        // Safety check in case the button is clicked when it shouldn't be
+        if (!inPlaybackMode || !aiMoves[playbackIndex]) return;
+
+        // Get the final state the user is currently viewing
+        const finalState = aiMoves[playbackIndex];
+        console.log("Accepting AI moves. Final state:", finalState);
+
+        // Send the "commit" message to the backend to make this the official state
+        sendMessage({
+            type: 'commit_ai_moves',
+            board: finalState.board,
+            score: finalState.score
+        });
+
+        // Exit playback mode on the client. The backend will soon send an "update"
+        // message which will confirm this state, but we exit immediately for a snappy UI.
+        setInPlaybackMode(false);
+        setAiMoves([]);
+    };
+
+    const handleRestart = () => {
+        setIsAiAssisted(false);
+        sendMessage({ type: 'restart' });
+    }
+
+    // Initialize WebSocket connection
+    const initWebSocket = async () => {
+        if (!mountedRef.current || isReconnectingRef.current) {
+            console.log("Skipping WebSocket init - unmounted or already reconnecting");
+            return;
+        }
+
+        isReconnectingRef.current = true;
+
+        try {
+            await ensureSession();
+            
+            if (wsRef.current) {
+                if (wsRef.current.readyState === WebSocket.OPEN || 
+                    wsRef.current.readyState === WebSocket.CONNECTING) {
+                    console.log("Closing existing WebSocket before reconnect");
+                    wsRef.current.close(1000, "Reconnecting");
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
             }
-        };
-        loadModels();
-    }, []);
+
+            if (!mountedRef.current) return;
+
+            const isDevelopment = import.meta.env.DEV;
+            const connectionId = Date.now().toString(36);
+            const sessionId = getCookie("sessionid");
+            
+            if (!sessionId) {
+                console.error("No session ID found - cannot establish WebSocket connection");
+                isReconnectingRef.current = false;
+                // Notify parent of disconnection
+                if (onConnectionChange) {
+                    onConnectionChange(false);
+                }
+                return;
+            }
+            
+            const loc = window.location;
+            const protocol = isDevelopment ? 'ws:' : (loc.protocol === 'https:' ? 'wss:' : 'ws:');
+            const host = isDevelopment ? '127.0.0.1:8000' : loc.host;
+            const wsUrl = `${protocol}//${host}/ws/game/?id=${connectionId}&session=${sessionId}`;
+            
+            console.log("Connecting to WebSocket:", wsUrl);
+
+            const socket = new WebSocket(wsUrl);
+            wsRef.current = socket;
+            
+            socket.onopen = () => {
+                if (!mountedRef.current) return;
+                setWsOpen(true);
+                console.log("%cWebSocket OPEN ✅", "color: green; font-weight: bold;");
+                isReconnectingRef.current = false;
+                
+                // NEW: Notify parent of connection
+                if (onConnectionChange) {
+                    onConnectionChange(true);
+                }
+                
+                if (reconnectTimeoutRef.current) {
+                    clearTimeout(reconnectTimeoutRef.current);
+                    reconnectTimeoutRef.current = null;
+                }
+            };
+
+            socket.onmessage = (event) => {
+                if (!mountedRef.current) return;
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === "init" || data.type === "update") {
+                        setInPlaybackMode(false); 
+                        setBoard(data.board);
+                        setScore(data.score);
+                        setOver(data.over);
+                        if (data.ai_assisted) {
+                            setIsAiAssisted(true);
+                        }
+                        if (data.last_move) {
+                            setAnimationKey(prev => prev + 1);
+                            setLastMoveDirection(data.last_move);
+                        }
+                        if (onScoreUpdate) {
+                            onScoreUpdate(data.score);
+                        }
+                    }
+                    else if (data.type === "ai_move_sequence") {
+                        if (data.moves && data.moves.length > 0) {
+                            console.log("Received AI move sequence:", data.moves);
+                            setAiMoves(data.moves);
+                            setInPlaybackMode(true);
+                            setPlaybackIndex(0);
+                            setIsAiAssisted(true);
+                        } else {
+                            console.log("AI returned no valid moves.");
+                        }
+                    }
+                    else if (data.type === "error") { 
+                        console.error("Server Error:", data.message);
+                        alert(`Error: ${data.message}`); 
+                    }
+                } catch (err) {
+                    console.error("Error parsing message:", err);
+                }
+            };
+
+            socket.onclose = (e) => {
+                if (!mountedRef.current) return;
+                setWsOpen(false);
+                isReconnectingRef.current = false;
+                
+                // NEW: Notify parent of disconnection
+                if (onConnectionChange) {
+                    onConnectionChange(false);
+                }
+                
+                console.log("%cWebSocket CLOSED", "color: orange;", "Code:", e.code, "Reason:", e.reason);
+                
+                if (e.code === 1000 || e.code === 1001) {
+                    console.log("Normal closure - not reconnecting");
+                    return;
+                }
+
+                if (e.code === 4401 || e.code === 4403) {
+                    console.error("Authentication error - please log in again");
+                    return;
+                }
+
+                const retryCount = socket.retryCount || 0;
+                if (retryCount < 5) {
+                    const delay = Math.min(1000 * Math.pow(2, retryCount), 30000);
+                    console.log(`Scheduling reconnect attempt ${retryCount + 1}/5 in ${delay}ms`);
+                    
+                    reconnectTimeoutRef.current = setTimeout(() => {
+                        if (mountedRef.current) {
+                            console.log(`Executing reconnect attempt ${retryCount + 1}/5`);
+                            const newSocket = initWebSocket();
+                            if (newSocket && wsRef.current) {
+                                wsRef.current.retryCount = retryCount + 1;
+                            }
+                        }
+                    }, delay);
+                } else {
+                    console.error("Max reconnection attempts reached");
+                }
+            };
+
+            socket.onerror = (e) => {
+                console.error("WebSocket Error:", e);
+                isReconnectingRef.current = false;
+            };
+
+        } catch (error) {
+            console.error("Error setting up WebSocket:", error);
+            isReconnectingRef.current = false;
+            // NEW: Notify parent of connection failure
+            if (onConnectionChange) {
+                onConnectionChange(false);
+            }
+        }
+    };
+
+    useImperativeHandle(ref, () => ({
+        startAI: ({ num_moves }) => {
+            if (over || inPlaybackMode) return;
+            console.log(`Requesting ${num_moves} moves`);
+            sendMessage({ type: 'get_ai_moves', num_moves });
+        },
+        reconnect: () => {
+            console.log("Manual reconnect requested by parent");
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
+                reconnectTimeoutRef.current = null;
+            }
+            if (wsRef.current) {
+                wsRef.current.close(1000, "Manual reconnect");
+            }
+            setTimeout(() => {
+                isReconnectingRef.current = false;
+                initWebSocket();
+            }, 300);
+        }
+    }));
 
     useEffect(() => {
         if (over && !gameSaved && username) {
@@ -154,11 +335,13 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
     }, [over, gameSaved]);
 
     useEffect(() => {
-        gameStateRef.current = { wsOpen, over };
-    }, [wsOpen, over]);
+        console.log("WebSocket effect triggered - username:", username);
+        mountedRef.current = true;
+        
+        initWebSocket();
 
-    useEffect(() => {
         const handleKey = (e) => {
+
             let direction = '';
             switch (e.key) {
                 case 'ArrowUp': direction = 'up'; break;
@@ -193,210 +376,27 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
                 setInPlaybackMode(false);
                 setAiMoves([]);
             }
-        }
-
-        let mounted = true;
-        console.log("WebSocket connection effect running (should only see this ONCE)");
-        
-        const initWebSocket = async () => {
-            if (!mounted) return;
-            
-            try {
-                await ensureSession();
-                
-                const isDevelopment = import.meta.env.DEV;
-                const connectionId = Date.now().toString(36);
-                const sessionId = getCookie("sessionid") || "anonymous";
-                
-                const loc = window.location;
-                let wsUrl;
-                
-                if (isDevelopment) {
-                    wsUrl = `ws://127.0.0.1:8000/ws/game/?id=${connectionId}&session=${sessionId}`;
-                } else {
-                    const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-                    wsUrl = `${protocol}//${loc.host}/ws/game/?id=${connectionId}&session=${sessionId}`;
-                }
-                
-                console.log("Connecting to WebSocket:", wsUrl);
-
-                if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
-                    console.log("Closing existing socket before reconnect");
-                    wsRef.current.close(1000, "Reconnecting");
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                }
-
-                const socket = new WebSocket(wsUrl);
-                wsRef.current = socket;
-                
-                if (!wsRef.current.retryCount) {
-                    wsRef.current.retryCount = 0;
-                }
-
-                socket.onopen = () => {
-                    if (!mounted) return;
-                    setWsOpen(true);
-                    console.log("%cWebSocket OPEN ✅", "color: green; font-weight: bold;");
-                    wsRef.current.retryCount = 0;
-                };
-
-                socket.onmessage = (event) => {
-                    if (!mounted) return;
-                    try {
-                        const data = JSON.parse(event.data);
-                        
-                        if (data.type === "init" || data.type === "update") {
-                            setInPlaybackMode(false); 
-                            setBoard(data.board);
-                            setScore(data.score);
-                            setOver(data.over);
-                            if (data.ai_assisted) {
-                                setIsAiAssisted(true);
-                            }
-                            if (data.username) {
-                                setUsername(data.username);
-                            }
-                            if (data.last_move) {
-                                setAnimationKey(prev => prev + 1);
-                                setLastMoveDirection(data.last_move);
-                                
-                                
-                            }
-                            if (onScoreUpdate) {
-                                onScoreUpdate(data.score);
-                            }
-                        }
-                        else if (data.type === "ai_move_sequence") {
-                            if (data.moves && data.moves.length > 0) {
-                                console.log("Received AI move sequence:", data.moves);
-                                setAiMoves(data.moves);
-                                setInPlaybackMode(true);
-                                setPlaybackIndex(0);
-                                setIsAiAssisted(true);
-                            } else {
-                                console.log("AI returned no valid moves.");
-                            }
-                        }
-                        else if (data.type === "error") { 
-                            console.error("Server Error:", data.message);
-                            alert(`Error: ${data.message}`); 
-                        }
-                    } catch (err) {
-                        console.error("Error parsing message:", err);
-                    }
-                };
-
-                socket.onclose = (e) => {
-                    if (!mounted) return;
-                    setWsOpen(false);
-                    console.log("%cWebSocket CLOSED", "color: orange;", "Code:", e.code);
-                    
-                    if (e.code === 1000 || e.code === 1001) {
-                        return;
-                    }
-
-                    const retryCount = wsRef.current?.retryCount || 0;
-                    
-                    if (retryCount < 5) {
-                        const reconnectDelay = Math.min(1000 * Math.pow(2, retryCount), 30000);
-                        console.log(`Reconnect attempt ${retryCount + 1}/5 in ${reconnectDelay}ms`);
-                        
-                        setTimeout(() => {
-                            if (mounted && wsRef.current) {
-                                wsRef.current.retryCount = retryCount + 1;
-                                initWebSocket();
-                            }
-                        }, reconnectDelay);
-                    }
-                };
-
-                socket.onerror = (e) => {
-                    console.error("WebSocket Error:", e);
-                };
-            } catch (error) {
-                console.error("Error setting up WebSocket:", error);
-            }
         };
-        
-        reconnectFnRef.current = () => {
-            console.log("Manual reconnect triggered");
-            if (wsRef.current) {
-                wsRef.current.close(1000, "Manual reconnect");
-            }
-            setTimeout(() => initWebSocket(), 200);
-        };
-        
-        initWebSocket();
+
         window.addEventListener('keydown', handleKey);
 
         return () => {
             console.log("WebSocket effect cleanup");
-            mounted = false;
+            mountedRef.current = false;
             window.removeEventListener('keydown', handleKey);
             
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
+            }
+            
             if (wsRef.current) {
-                if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+                if (wsRef.current.readyState === WebSocket.OPEN || 
+                    wsRef.current.readyState === WebSocket.CONNECTING) {
                     wsRef.current.close(1000, "Component unmounted");
                 }
             }
         };
-    }, [onScoreUpdate]); 
-    
-    useEffect(() => {
-        console.log("Auth effect running (should only see this ONCE)");
-        
-        const checkAuth = async () => {
-            try {
-                const user = await getCurrentUser();
-                setUsername(user || null);
-            } catch (error) {
-                console.error("Error checking authentication:", error);
-            }
-        };
-        
-        checkAuth();
-        
-        const handleAuthChange = (event) => {
-            const { authenticated, user } = event.detail;
-            const previousUsername = usernameRef.current;
-            
-            console.log(`Auth change: ${previousUsername} → ${user?.username || 'null'}`);
-            
-            if (authenticated && user && user.username) {
-                setUsername(user.username);
-                if (!previousUsername && reconnectFnRef.current) {
-                    console.log("New login detected - reconnecting");
-                    setTimeout(() => reconnectFnRef.current(), 500);
-                }
-            } else {
-                setUsername(null);
-                if (previousUsername && reconnectFnRef.current) {
-                    console.log("Logout detected - reconnecting");
-                    setTimeout(() => reconnectFnRef.current(), 500);
-                }
-            }
-        };
-        
-        window.addEventListener('auth-state-change', handleAuthChange);
-        const authCheckInterval = setInterval(checkAuth, 30000);
-        
-        return () => {
-            console.log("Auth effect cleanup");
-            window.removeEventListener('auth-state-change', handleAuthChange);
-            clearInterval(authCheckInterval);
-        };
-    }, []);
-
-    const handleRestart = () => {
-        setIsAiAssisted(false);
-        sendMessage({ type: 'restart' });
-    }
-
-    const handleManualReconnect = () => {
-        if (reconnectFnRef.current) {
-            reconnectFnRef.current();
-        }
-    };
+    }, [username]);
 
     const displayBoard = 
         inPlaybackMode && aiMoves.length > 0
@@ -408,31 +408,11 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
         ? aiMoves[playbackIndex].score
         : score;
 
-    // Get the direction to display - either from AI playback or regular gameplay
     const currentMoveDirection = 
         inPlaybackMode && aiMoves.length > 0
         ? aiMoves[playbackIndex]?.move_made
         : lastMoveDirection;
 
-    // Function to generate directional glow classes
-    // const getDirectionalGlow = (direction) => {
-    //     if (!direction) return '';
-        
-    //     const glowBase = 'transition-all duration-400';
-        
-    //     switch(direction) {
-    //         case 'up':
-    //             return `${glowBase} shadow-[0_-8px_24px_-4px_rgba(34,211,238,0.6)] border-t-2 border-t-cyan-400/50`;
-    //         case 'down':
-    //             return `${glowBase} shadow-[0_8px_24px_-4px_rgba(34,211,238,0.6)] border-b-2 border-b-cyan-400/50`;
-    //         case 'left':
-    //             return `${glowBase} shadow-[-8px_0_24px_-4px_rgba(34,211,238,0.6)] border-l-2 border-l-cyan-400/50`;
-    //         case 'right':
-    //             return `${glowBase} shadow-[8px_0_24px_-4px_rgba(34,211,238,0.6)] border-r-2 border-r-cyan-400/50`;
-    //         default:
-    //             return glowBase;
-    //     }
-    // };
     const getDirectionalGlow = (direction) => {
         if (!direction) return '';
         switch(direction) {
@@ -443,13 +423,9 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
             default: return '';
         }
     };
-  
 
     return (
         <div className="bg-slate-800/50 backdrop-blur-md shadow-2xl rounded-2xl p-6 border border-slate-700/40 w-full max-w-xl">
-            {/* Connection Status - Top Center */}
-            
-            
             {over && 
                 <div className="p-4 bg-red-900/30 border border-red-500/40 text-red-300 rounded-lg mb-4 text-center backdrop-blur-sm">
                     <h3 className="text-2xl font-extrabold">Game Over!</h3>
@@ -493,24 +469,37 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
                         </div>
                     )}
                     {playbackIndex === aiMoves.length - 1 && (
-                        <p className="text-sm text-green-400 mt-2 font-semibold">
-                            You are at the final move. Use arrow keys to continue playing.
-                        </p>
+                        <div className="mt-4 pt-4 border-t border-purple-500/30 flex justify-center gap-4">
+                        <button 
+                            onClick={handleCancelPlayback} 
+                            className="px-4 py-1 rounded-lg font-semibold transition-all duration-300 bg-slate-700/60
+                             hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-600/80 backdrop-blur-sm transform hover:scale-105"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            onClick={handleAcceptMoves} 
+                            className="px-6 py-2 rounded-lg font-bold transition-all duration-300
+                   bg-purple-600/40 hover:bg-purple-600/100 text-purple-100  border-purple-500/50 backdrop-blur-sm shadow-lg shadow-purple-500/10 transform hover:scale-105">
+                            Commit
+                        </button>
+                        
+                        </div>
                     )}
                 </div>
             ) : (
-            <div className="flex justify-center mb-6">
-                <div className={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-300 ${
-                    wsOpen 
-                        ? 'bg-green-500/20 text-green-400 border border-green-500/30 animate-pulse' 
-                        : 'bg-red-500/20 text-red-400 border border-red-500/30'
-                }`}>
-                    Connection: {wsOpen ? 'Live' : 'Closed'}
-                </div>
-            </div>)}
+                /* NEW: Show score during gameplay, hide when game is over */
+                !over && (
+                    <div className="flex justify-center mb-6">
+                        <div className="px-6 py-3 bg-gradient-to-br from-cyan-500/15 to-blue-500/15 border border-cyan-500/30 rounded-xl backdrop-blur-sm">
+                            <div className="text-xs text-cyan-400/60 font-medium uppercase tracking-wider text-center">Current Score</div>
+                            <div className="text-2xl font-bold text-cyan-300 text-center">{displayScore}</div>
+                        </div>
+                    </div>
+                )
+            )}
             
-            {/* Game Board */}
-            <div key = {animationKey} 
+            <div key={animationKey} 
                 className={`grid grid-cols-4 gap-3 w-full p-4 bg-slate-700/50 rounded-xl shadow-inner mb-6 ${getDirectionalGlow(currentMoveDirection)}`}>
                 {displayBoard.flat().map((cell, idx) => {
                     const isMegaTile = cell >= 4096;
@@ -538,26 +527,17 @@ const GameBoard = forwardRef(({ onScoreUpdate }, ref) => {
                 })}
             </div>
 
-            {/* Bottom Buttons */}
             {!inPlaybackMode ? (
                 <div className="flex gap-3 justify-center">
-                {/* <button 
-                    className="flex-1 bg-blue-600/80 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300 shadow-md border border-blue-500/30"
-                    disabled={!wsOpen}
-                >
-                    Get AI Moves
-                </button> */}
-                <button 
-                    onClick={handleRestart} 
-                    className="flex-1 bg-green-600/80 hover:bg-green-600 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300 shadow-md border border-green-500/30"
-                    disabled={!wsOpen}
-                >
-                    Restart Game
-                </button>
-                
-            </div>
+                    <button 
+                        onClick={handleRestart} 
+                        className="w-40 bg-green-900/50 hover:bg-green-800/60 backdrop-blur-xl border border-green-500/40 rounded-lg text-green-200 hover:text-green-100 px-6 py-3 font-semibold transition-all duration-200 shadow-md hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                        disabled={!wsOpen}
+                    >
+                        Restart Game
+                    </button>
+                </div>
             ) : null}
-            
         </div>
     )
 });
