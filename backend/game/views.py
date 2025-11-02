@@ -201,26 +201,27 @@ class LeaderboardView(APIView):
     permission_classes = [permissions.AllowAny]
     
     def get(self, request):        
-        mode = request.query_params.get('mode','human')
-        if mode == "ai":
-            # --- AI ONLY LEADERBOARD ---
-            ai_player_ids = Game.objects.filter(mode='ai').values_list('user_id', flat=True).distinct()
+        mode = request.query_params.get('mode', 'total') # Default to 'total'
 
+        # --- AI-ASSISTED LEADERBOARD ---
+        if mode == "ai":
+            # Find users who have played at least one AI game
+            ai_player_ids = Game.objects.filter(mode='ai').values_list('user_id', flat=True).distinct()
+            # Filter for those users and sort by their total AI score
             leaderboard_data = Game.objects.filter(
                 user_id__in=ai_player_ids
             ).values('user__username').annotate(
+                total_score=Sum('score'),
                 human_score=Sum(Case(When(mode='manual', then='score'), default=0, output_field=IntegerField())),
                 ai_score=Sum(Case(When(mode='ai', then='score'), default=0, output_field=IntegerField())),
-                total_score=Sum('score'),
                 games_played=Count('id')
             ).order_by('-ai_score')[:10]
 
+        # --- HUMAN-ONLY LEADERBOARD ---
         elif mode == 'human':
-            # --- HUMAN-ONLY LEADERBOARD ---
-            #  Find all users who have ever played an AI game.
+            # Find users who have ever played an AI game
             ai_player_ids = Game.objects.filter(mode='ai').values_list('user_id', flat=True).distinct()
-
-            #. Exclude those users, and only consider 'manual' games.
+            # Exclude those users and calculate their total score from manual games
             leaderboard_data = Game.objects.filter(
                 mode='manual'
             ).exclude(
@@ -228,30 +229,36 @@ class LeaderboardView(APIView):
             ).values('user__username').annotate(
                 total_score=Sum('score'),
                 games_played=Count('id')
-            ).order_by('-human_score')[:10]
+            # --- THIS IS THE FIX ---
+            # Sort by the 'total_score' field that was actually calculated.
+            ).order_by('-total_score')[:10]
         
+        # --- TOTAL SCORE LEADERBOARD (DEFAULT) ---
         else:
              leaderboard_data = Game.objects.values(
-                'user__username'  # Group all games by the user's username
+                'user__username'
             ).annotate(
+                # --- THIS IS THE FIX ---
+                # This query now calculates all necessary fields for the breakdown.
                 total_score=Sum('score'),
+                human_score=Sum(Case(When(mode='manual', then='score'), default=0, output_field=IntegerField())),
+                ai_score=Sum(Case(When(mode='ai', then='score'), default=0, output_field=IntegerField())),
                 games_played=Count('id') 
             ).order_by('-total_score')[:10] 
 
-
-        leaderboard_list = []
-        for index, entry in enumerate(leaderboard_data):
-            player_data = {
+        # This formatting logic is correct and remains the same.
+        leaderboard_list = [
+            {
                 'rank': index + 1,
                 'username': entry['user__username'],
                 'total_score': entry['total_score'],
                 'games_played': entry['games_played'],
-                # For AI players, include the breakdown. For human players, these will be 0.
-                'human_score': entry.get('human_score', 0),
+                'human_score': entry.get('human_score', entry['total_score']), # Smart fallback for human-only mode
                 'ai_score': entry.get('ai_score', 0),
             }
-            leaderboard_list.append(player_data)
-
+            for index, entry in enumerate(leaderboard_data)
+        ]
+        
         return Response(leaderboard_list)
 
 # ----------------------------------------------------------------------

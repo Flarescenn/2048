@@ -419,29 +419,52 @@ class GameConsumer(AsyncWebsocketConsumer):
                 if not self.user_id:
                     await self.send(text_data=json.dumps({"type": "error", "message": "You must be logged in to use AI."}))
                     return
+                # A major issue with the longer AI calculations was server disconnection
+                # To solve this issue we are using this non blocking logic
+                # Define an async wrapper function which runs our task in the background
+                async def run_ai_in_background():
+                    # Immediately send a "thinking" message to the frontend.
+                    await self.send(text_data=json.dumps({"type": "ai_thinking"}))
+
+                    # Gets the necessary data from the database. This part is async.
+                    agent_class_name, params = await self.get_user_ai_params()
+                    if not agent_class_name:
+                        await self.send(text_data=json.dumps({"type": "error", "message": "No AI is equipped."}))
+                        return
+                    
+                    agent_cls = AGENTS.get(agent_class_name.lower())
+                    if not agent_cls:
+                        await self.send(text_data=json.dumps({"type": "error", "message": f"AI agent '{agent_class_name}' not found."}))
+                        return
+                        
+                    # Flag the game and save its state BEFORE starting the long task.
+                    self.game.ai_assisted = True
+                    await self.save_game_state(
+                        self.user_id, self.game.board, self.game.score, self.game.over, self.game.ai_assisted
+                    )
+
+                    # THIS RIGHT HERE is the CPU-intensive function. This function MUST NOT use `await`.
+                    def heavy_calculation():
+                        print(f"[{self.channel_name}] Starting AI calculations in a background thread...")
+                        agent = agent_cls()
+                        sequence = agent.get_move_sequence(self.game, num_moves, params)
+                        print(f"[{self.channel_name}] ...Heavy AI calculation finished.")
+                        return sequence
+
+                    # Run the slow function in a separate thread.
+                    # The `await` here pauses `run_ai_in_background`, but NOT the main consumer.
+                    # The consumer is now free to handle other messages or ping-pong checks.
+                    # This makes sure the Daphne server doesn't hang up.
+                    move_sequence = await asyncio.to_thread(heavy_calculation)
+
+                    # Once the background thread is done, send the final result.
+                    await self.send(text_data=json.dumps({
+                        "type": "ai_move_sequence",
+                        "moves": move_sequence
+                    }))
                 
-                agent_class_name, params = await self.get_user_ai_params()
-
-                if not agent_class_name:
-                    await self.send(text_data=json.dumps({"type": "error", "message": "No AI is equipped."}))
-                    return
-
-                agent_cls = AGENTS.get(agent_class_name.lower())
-
-                if not agent_cls:
-                    await self.send(text_data=json.dumps({"type": "error", "message": f"AI agent '{agent_class_name}' not found."}))
-                    return
-            
-                self.game.ai_assisted = True
-                await self.save_game_state(
-                    self.user_id, self.game.board, self.game.score, self.game.over, self.game.ai_assisted
-                )
-                print(f"Game for user {self.user_id} is now flagged as AI-Assisted.")
-                agent = agent_cls()
-                # Gets the move seqeuences (list of dictionaries ie the game states)
-                move_sequence = agent.get_move_sequence(self.game, num_moves, params)
-
-                await self.send(text_data=json.dumps({"type": "ai_move_sequence", "moves": move_sequence}))
+                # Start the background task. This returns control to the `receive` method instantly.
+                asyncio.create_task(run_ai_in_background())
             
             
             elif data.get("type") == "commit_ai_moves":

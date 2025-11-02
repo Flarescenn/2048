@@ -1,6 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { purchaseAI, saveUserAiProfile } from "../api/api";
-// We'll create this sleek slider next
 import Slider from './Slider';
 import Tooltip from './Tooltip';
 
@@ -8,11 +7,16 @@ export default function AIProfileView({ ai, userProfile, onBack, onPurchaseSucce
     const isUnlocked = userProfile.unlocked?.includes(ai.id);
     const isEquipped = userProfile.equipped_ai?.id === ai.id;
 
-    // Initialize parameters from user's saved config, or the AI's defaults
-    const [params, setParams] = useState(userProfile.configs?.[ai.id] || 
-        // Create defaults from the tunable_params definition
-        Object.fromEntries(Object.entries(ai.tunable_params).map(([key, val]) => [key, val.default]))
-    );
+    const [params, setParams] = useState(null);
+    // Make sure the updates to the configurations are reflected
+    useEffect(() => {
+        const initialParams = userProfile.ai_configs?.[ai.id] || 
+            Object.fromEntries(Object.entries(ai.tunable_params).map(([key, val]) => [key, val.default]));
+        
+        setParams(initialParams);
+    
+    }, [ai, userProfile])
+    
     const [isProcessing, setIsProcessing] = useState(false);
 
     const handleParamChange = (paramName, value) => {
@@ -29,6 +33,10 @@ export default function AIProfileView({ ai, userProfile, onBack, onPurchaseSucce
         }
         setIsProcessing(false);
     };
+    
+    if (!params) {
+        return <div>Loading configuration...</div>;
+    }
 
     const handleEquip = async () => {
         setIsProcessing(true);
@@ -73,11 +81,11 @@ export default function AIProfileView({ ai, userProfile, onBack, onPurchaseSucce
             {isUnlocked && Object.keys(ai.tunable_params).length > 0 && (
                 <div className="bg-slate-800 p-4 rounded-lg">
                     <h4 className="text-lg font-semibold text-white mb-4">Tunable Parameters</h4>
-                    <div className="space-y-6"> {/* Increased spacing for the new slider */}
+                    <div className="space-y-6">
                         {Object.entries(ai.tunable_params).map(([key, config]) => (
                             <div key={key}>
-                                {/* --- 2. WRAP THE LABEL AND TOOLTIP --- */}
-                                <div className="group flex items-center mb-1"> {/* <-- Added 'group' here */}
+
+                                <div className="group flex items-center mb-1"> 
                                     <label className="text-sm font-medium text-gray-300">{config.label}</label>
                                     <Tooltip text={config.description} />
                                 </div>
@@ -98,35 +106,29 @@ export default function AIProfileView({ ai, userProfile, onBack, onPurchaseSucce
             {/* Action Buttons */}
             <div className="mt-8">
                 {!isUnlocked ? (
-        // --- THIS IS THE NEW BUTTON ---
                 <button 
                     onClick={handlePurchase}
                     disabled={isProcessing}
                     className="w-full py-3 rounded-lg font-bold transition-all duration-300
                             bg-green-500/20 hover:bg-green-500/30      /* Semi-transparent green background */
                             text-green-300 hover:text-green-200       /* Glowing text color */
-                            border border-green-500/30                  /* Faint border to define the shape */
+                            border-green-500/30                  /* Faint border to define the shape */
                             backdrop-blur-sm                              
                             shadow-lg shadow-green-500/10               /* A subtle green glow */
                             transform hover:scale-100                 /* Interactive grow effect */
-                            disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed" // Disabled state
+                            disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed" 
                 >
                     {isProcessing ? "Processing..." : `Unlock for ${ai.cost} pts`}
                 </button>
             ) : (
-                // The "Equip & Save Config" button can remain as is, or you can apply a similar
-                // blue crystalline style to it if you wish.
+                        
                 <button
                     onClick={handleEquip}
-                    disabled={isProcessing || isEquipped} // Also disable if already equipped
+                    disabled={isProcessing} 
                     className={`w-full py-3 rounded-lg font-bold transition-all duration-300
-                            backdrop-blur-sm border
-                            ${isEquipped 
-                                ? 'bg-slate-700/80 text-slate-400 border-slate-600 cursor-not-allowed'
-                                : 'bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 hover:text-blue-200 border-blue-500/40 shadow-lg shadow-blue-500/10'
-                            }`}
+                            backdrop-blur-sm border bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 hover:text-blue-200 border-blue-500/40 shadow-lg shadow-blue-500/10`}
                 >
-                    {isProcessing ? "Saving..." : isEquipped ? "Currently Equipped" : "Equip & Save Config"}
+                    {isProcessing ? "Saving..." : isEquipped ? "Save Config" : "Equip & Save Config"}
                 </button>
             )}
             </div>

@@ -46,7 +46,6 @@ export default function AIDrawer({ isOpen, onClose }) {
     
     // This function will be passed down to AIProfileView
     const handlePurchaseSuccess = (purchasedId) => {
-        // Optimistically update the user profile to show the new AI as unlocked
         setUserProfile(prev => ({
             ...prev,
             unlocked: [...prev.unlocked, purchasedId]
@@ -65,13 +64,12 @@ export default function AIDrawer({ isOpen, onClose }) {
                 <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-white">&times;</button>
                 
                 {selectedAI ? (
-                    // --- CHARACTER SELECTION SCREEN ---
                     <AIProfileView 
                         ai={selectedAI}
                         userProfile={userProfile}
                         onBack={handleBackToList}
                         onPurchaseSuccess={handlePurchaseSuccess}
-                        onSetConfig={onClose} // Close the drawer after setting config
+                        onSetConfig={onClose} 
                     />
                 ) : (
                     // --- MAIN AI LISTING ---
