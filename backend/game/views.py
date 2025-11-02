@@ -229,16 +229,13 @@ class LeaderboardView(APIView):
             ).values('user__username').annotate(
                 total_score=Sum('score'),
                 games_played=Count('id')
-            # --- THIS IS THE FIX ---
-            # Sort by the 'total_score' field that was actually calculated.
             ).order_by('-total_score')[:10]
         
-        # --- TOTAL SCORE LEADERBOARD (DEFAULT) ---
+        # --- TOTAL SCORE LEADERBOARD  ---
         else:
              leaderboard_data = Game.objects.values(
                 'user__username'
             ).annotate(
-                # --- THIS IS THE FIX ---
                 # This query now calculates all necessary fields for the breakdown.
                 total_score=Sum('score'),
                 human_score=Sum(Case(When(mode='manual', then='score'), default=0, output_field=IntegerField())),
@@ -246,7 +243,6 @@ class LeaderboardView(APIView):
                 games_played=Count('id') 
             ).order_by('-total_score')[:10] 
 
-        # This formatting logic is correct and remains the same.
         leaderboard_list = [
             {
                 'rank': index + 1,

@@ -26,6 +26,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         self.game_key = None 
         self.game = None
         self.authenticated_username = None
+        self.ai_cancellation_token = None
 
     @database_sync_to_async
     def check_ai_unlocked(self, user_id, agent_name):
@@ -443,11 +444,14 @@ class GameConsumer(AsyncWebsocketConsumer):
                         self.user_id, self.game.board, self.game.score, self.game.over, self.game.ai_assisted
                     )
 
+                    # This will be used for cancelling mid operation
+                    self.ai_cancellation_token = {'cancelled': False}
+
                     # THIS RIGHT HERE is the CPU-intensive function. This function MUST NOT use `await`.
-                    def heavy_calculation():
+                    def heavy_calculation(token):
                         print(f"[{self.channel_name}] Starting AI calculations in a background thread...")
                         agent = agent_cls()
-                        sequence = agent.get_move_sequence(self.game, num_moves, params)
+                        sequence = agent.get_move_sequence(self.game, num_moves, params, token)
                         print(f"[{self.channel_name}] ...Heavy AI calculation finished.")
                         return sequence
 
@@ -455,13 +459,26 @@ class GameConsumer(AsyncWebsocketConsumer):
                     # The `await` here pauses `run_ai_in_background`, but NOT the main consumer.
                     # The consumer is now free to handle other messages or ping-pong checks.
                     # This makes sure the Daphne server doesn't hang up.
-                    move_sequence = await asyncio.to_thread(heavy_calculation)
+                    move_sequence = await asyncio.to_thread(heavy_calculation, self.ai_cancellation_token)
+
+                    if self.ai_cancellation_token and not self.ai_cancellation_token.get('cancelled'):
+                        await self.send(text_data=json.dumps({
+                            "type": "ai_move_sequence",
+                            "moves": move_sequence
+                        }))
+                    else:
+                        print(f"[{self.channel_name}] AI calculation was cancelled. Not sending results.")
+                    
+                    # Clean up the token
+                    self.ai_cancellation_token = None
 
                     # Once the background thread is done, send the final result.
-                    await self.send(text_data=json.dumps({
-                        "type": "ai_move_sequence",
-                        "moves": move_sequence
-                    }))
+                    # await self.send(text_data=json.dumps({
+                    #     "type": "ai_move_sequence",
+                    #     "moves": move_sequence
+                    # }))
+
+
                 
                 # Start the background task. This returns control to the `receive` method instantly.
                 asyncio.create_task(run_ai_in_background())
@@ -497,6 +514,10 @@ class GameConsumer(AsyncWebsocketConsumer):
                 else:
                     await self.send(text_data=json.dumps({"type": "error", "message": "Invalid data for committing AI moves."}))
 
+            elif data.get("type") == "cancel_ai":
+                print(f"[{self.channel_name}] Received request to cancel AI.")
+                if self.ai_cancellation_token:
+                    self.ai_cancellation_token['cancelled'] = True
                     
             elif data.get("type") == "restart":
                 if self.ai_task: 

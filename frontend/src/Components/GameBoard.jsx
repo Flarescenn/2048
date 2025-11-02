@@ -1,5 +1,20 @@
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { ensureSession, completeGame } from "../api/api.js";
+// +++ Strictly animation purposes ++++
+const spawnValue = () => {
+    const rand = Math.random();
+    // Weighted probabilities
+    if (rand < 0.25) return 2;        
+    if (rand < 0.45) return 4;        
+    if (rand < 0.65) return 8;        
+    if (rand < 0.80) return 16;       
+    if (rand < 0.86) return 32;       
+    if (rand < 0.90) return 64;       
+    if (rand < 0.94) return 128;      
+    if (rand < 0.975) return 256; 
+    if (rand < 0.995) return 512; 
+    return 1024;                       
+};
 
 const getTileColor = (value) => {
     switch (value) {
@@ -37,6 +52,8 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
     const [gameSaved, setGameSaved] = useState(false);
     const [saveMessage, setSaveMessage] = useState('');
     const [isAiAssisted, setIsAiAssisted] = useState(false);
+    const [isAiThinking, setIsAiThinking] = useState(false);
+    const [thinkingAnimationBoard, setThinkingAnimationBoard] = useState(null);
 
     const [inPlaybackMode, setInPlaybackMode] = useState(false);
     const [aiMoves, setAiMoves] = useState([]);
@@ -47,9 +64,9 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
     const isReconnectingRef = useRef(false);
     const reconnectTimeoutRef = useRef(null);
     const mountedRef = useRef(true);
-
+    const thinkingAnimationRef = useRef(null);
     const stateRef = useRef();
-    stateRef.current = { over, inPlaybackMode, playbackIndex, aiMoves };
+    stateRef.current = { over, inPlaybackMode, playbackIndex, aiMoves, isAiThinking };
 
     const getCookie = (name) => {
         if (!document.cookie) {
@@ -72,6 +89,18 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
             console.error("WebSocket is not open. Ready state:", wsRef.current?.readyState);
         }
     }
+
+    const handleCancelAi = () => {
+        console.log("Requesting AI task cancellation.");
+        sendMessage({ type: 'cancel_ai' });
+        setIsAiThinking(false); // Immediately hide the overlay for instant feedback
+
+        if (thinkingAnimationRef.current) {
+            clearInterval(thinkingAnimationRef.current);
+            thinkingAnimationRef.current = null;
+        }
+        setThinkingAnimationBoard(null);
+    };
 
     const handleNextMove = () => {
         setPlaybackIndex(prevIndex => Math.min(prevIndex + 1, aiMoves.length - 1));
@@ -191,6 +220,12 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
                     
                     if (data.type === "init" || data.type === "update") {
                         setInPlaybackMode(false); 
+                        setIsAiThinking(false);
+                        if (thinkingAnimationRef.current) {
+                            clearInterval(thinkingAnimationRef.current);
+                            thinkingAnimationRef.current = null;
+                        }
+                        setThinkingAnimationBoard(null);
                         setBoard(data.board);
                         setScore(data.score);
                         setOver(data.over);
@@ -209,12 +244,22 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
                         if (data.moves && data.moves.length > 0) {
                             console.log("Received AI move sequence:", data.moves);
                             setAiMoves(data.moves);
+                            setIsAiThinking(false);
+                            if (thinkingAnimationRef.current) {
+                                clearInterval(thinkingAnimationRef.current);
+                                thinkingAnimationRef.current = null;
+                            }
+                            setThinkingAnimationBoard(null);
                             setInPlaybackMode(true);
                             setPlaybackIndex(0);
                             setIsAiAssisted(true);
                         } else {
                             console.log("AI returned no valid moves.");
                         }
+                    }
+                    
+                    else if (data.type === "ai_thinking") {
+                      setIsAiThinking(true);
                     }
                     else if (data.type === "error") { 
                         console.error("Server Error:", data.message);
@@ -334,6 +379,101 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
         }
     }, [over, gameSaved]);
 
+    // +++++++++++= KICKASS ANIMATION WHILE WE WAIT FOR THE AI +++++++++++++++++==
+    // Animation effect for AI thinking
+   
+    useEffect(() => {
+        if (isAiThinking && !inPlaybackMode) {
+            // Start with current board
+            setThinkingAnimationBoard([...board.map(row => [...row])]);
+            
+            const animateThinking = () => {
+                setThinkingAnimationBoard(prevBoard => {
+                    if (!prevBoard) return prevBoard;
+                    
+                    const newBoard = prevBoard.map(row => [...row]);
+                    
+                    // Randomly decide what to do this frame
+                    const action = Math.random();
+                    
+                    if (action < 0.3) {
+                        // Spawn random tiles (30% chance)
+                        const emptySpots = [];
+                        for (let i = 0; i < 4; i++) {
+                            for (let j = 0; j < 4; j++) {
+                                if (newBoard[i][j] === 0) {
+                                    emptySpots.push([i, j]);
+                                }
+                            }
+                        }
+                        
+                        // Add 1-3 random tiles
+                        const numToAdd = Math.min(Math.floor(Math.random() * 3) + 1, emptySpots.length);
+                        for (let n = 0; n < numToAdd; n++) {
+                            const idx = Math.floor(Math.random() * emptySpots.length);
+                            const [i, j] = emptySpots[idx];
+
+                            newBoard[i][j] = spawnValue();
+                            emptySpots.splice(idx, 1);
+                        }
+                    } else if (action < 0.5) {
+                        // Remove some random tiles (20% chance)
+                        for (let i = 0; i < 4; i++) {
+                            for (let j = 0; j < 4; j++) {
+                                if (newBoard[i][j] !== 0 && Math.random() < 0.2) {
+                                    newBoard[i][j] = 0;
+                                }
+                            }
+                        }
+                    } else {
+                        // Shift tiles in a random direction (50% chance)
+                        const directions = ['up', 'down', 'left', 'right'];
+                        const direction = directions[Math.floor(Math.random() * directions.length)];
+                        
+                        if (direction === 'left' || direction === 'right') {
+                            const reverse = direction === 'right';
+                            for (let i = 0; i < 4; i++) {
+                                const row = [...newBoard[i]];
+                                const nonZero = row.filter(x => x !== 0);
+                                const zeros = Array(4 - nonZero.length).fill(0);
+                                newBoard[i] = reverse ? [...zeros, ...nonZero] : [...nonZero, ...zeros];
+                            }
+                        } else {
+                            const reverse = direction === 'down';
+                            for (let j = 0; j < 4; j++) {
+                                const col = [0, 1, 2, 3].map(i => newBoard[i][j]);
+                                const nonZero = col.filter(x => x !== 0);
+                                const zeros = Array(4 - nonZero.length).fill(0);
+                                const newCol = reverse ? [...zeros, ...nonZero] : [...nonZero, ...zeros];
+                                for (let i = 0; i < 4; i++) {
+                                    newBoard[i][j] = newCol[i];
+                                }
+                            }
+                        }
+                    }
+                    
+                    return newBoard;
+                });
+            };
+            
+            // Run animation every 150ms for more chaos
+            thinkingAnimationRef.current = setInterval(animateThinking, 120);
+            
+            return () => {
+                if (thinkingAnimationRef.current) {
+                    clearInterval(thinkingAnimationRef.current);
+                    thinkingAnimationRef.current = null;
+                }
+            };
+        } else {
+            if (thinkingAnimationRef.current) {
+                clearInterval(thinkingAnimationRef.current);
+                thinkingAnimationRef.current = null;
+            }
+            setThinkingAnimationBoard(null);
+        }
+    }, [isAiThinking, inPlaybackMode, board]);
+
     useEffect(() => {
         console.log("WebSocket effect triggered - username:", username);
         mountedRef.current = true;
@@ -341,6 +481,13 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
         initWebSocket();
 
         const handleKey = (e) => {
+            const { over, inPlaybackMode, playbackIndex, aiMoves, isAiThinking } = stateRef.current;
+            
+            if (isAiThinking) {
+                e.preventDefault()
+                console.log("Player move blocked - AI is thinking.");
+                return;
+            }
 
             let direction = '';
             switch (e.key) {
@@ -352,7 +499,7 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
             }
             e.preventDefault();
 
-            const { over, inPlaybackMode, playbackIndex, aiMoves } = stateRef.current;
+            // const { over, inPlaybackMode, playbackIndex, aiMoves } = stateRef.current;
 
             if (!inPlaybackMode && !over) {
                 sendMessage({ type: 'move', direction });
@@ -398,8 +545,14 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
         };
     }, [username]);
 
+    // const displayBoard = 
+    //     inPlaybackMode && aiMoves.length > 0
+    //     ? aiMoves[playbackIndex].board 
+    //     : board;
     const displayBoard = 
-        inPlaybackMode && aiMoves.length > 0
+        isAiThinking && thinkingAnimationBoard
+        ? thinkingAnimationBoard
+        : inPlaybackMode && aiMoves.length > 0
         ? aiMoves[playbackIndex].board 
         : board;
 
@@ -435,10 +588,24 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
                     )}
                 </div>
             }
+            
 
             {inPlaybackMode ? (
-                <div className="bg-purple-900/30 border-2 border-purple-500/40 p-4 rounded-lg mb-4 text-center backdrop-blur-sm">
-                    <h4 className="text-lg font-bold text-purple-300">Playback Mode</h4>
+                    <div 
+                    className="bg-purple-900/50 border-2 border-purple-500/40 p-4 rounded-lg mb-4 text-center backdrop-blur-sm subtle-pulse"
+                    // style={{ animation: 'pulse-bg-subtle 2s ease-in-out infinite' }}
+                    >    
+                    {/* <div className="bg-purple-100 border-2 border-purple-300 p-3 rounded-lg mb-4 text-center shadow-lg animate-pulse">                */}
+                    <div className="flex justify-between items-center mb-3">
+                    <h4 className="text-lg font-bold text-purple-300">Playback Mode</h4> 
+
+                    <div className="flex items-baseline gap-2 font-mono">
+                            <span className="text-base text-gray-400">{score}</span>
+                            <span className="text-sm font-thin text-purple-400">&rarr;</span>
+                            <span className="text-xl font-bold text-purple-200">{displayScore}</span>
+                        </div>
+                    </div>
+
                     <div className="flex justify-center items-center gap-4 mt-3">
                         <button 
                             onClick={handlePreviousMove} 
@@ -500,7 +667,7 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
             )}
             
             <div key={animationKey} 
-                className={`grid grid-cols-4 gap-3 w-full p-4 bg-slate-700/50 rounded-xl shadow-inner mb-6 ${getDirectionalGlow(currentMoveDirection)}`}>
+                className={`grid grid-cols-4 gap-3 w-full p-4 bg-slate-700/50 rounded-xl shadow-inner mb-6 ${getDirectionalGlow(currentMoveDirection)} transition-all duration-300${isAiThinking ? 'blur opacity-50' : 'opacity-100'}`}>
                 {displayBoard.flat().map((cell, idx) => {
                     const isMegaTile = cell >= 4096;
                     const fontSize = cell >= 8192 ? 'text-xl' : cell >= 1024 ? 'text-2xl' : 'text-3xl';
@@ -526,6 +693,29 @@ const GameBoard = forwardRef(({ onScoreUpdate, onConnectionChange, username }, r
                     );
                 })}
             </div>
+
+
+            {isAiThinking && (
+                <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center rounded-2xl z-10">
+                    
+                    
+                    {/* The content box */}
+                    <div className="relative text-center p-8 bg-slate-900/70 rounded-xl shadow-2xl border border-slate-700">
+                        <svg className="animate-spin h-8 w-8 text-purple-400 mx-auto mb-4" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <h3 className="text-xl font-bold text-white">Your Agent is Thinking...</h3>
+                        <p className="text-sm text-gray-400 mt-2">Calculating the optimal move sequence.</p>
+                        <button 
+                            onClick={handleCancelAi}
+                            className="mt-6 px-6 py-2 bg-red-600/30 hover:bg-red-600/50 text-red-300 rounded-lg font-semibold transition"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {!inPlaybackMode ? (
                 <div className="flex gap-3 justify-center">

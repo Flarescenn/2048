@@ -51,6 +51,19 @@ export default function Leaderboard() {
 
     useEffect(() => {
         fetchLeaderboard(mode);
+
+        const handleGameCompleted = () => {
+            console.log("Leaderboard: 'game-completed' event received. Refreshing data...");
+            setTimeout(() => {
+                fetchLeaderboard(mode);
+            }, 1000); // 1-second delay
+        };
+        window.addEventListener('game-completed', handleGameCompleted);
+
+        // Cleanup: remove the event listener when the component unmounts
+        return () => {
+            window.removeEventListener('game-completed', handleGameCompleted);
+        };
         // const interval = setInterval(fetchLeaderboard, 60000); // Refresh every 60 seconds
         // return () => clearInterval(interval);
     }, [mode]);

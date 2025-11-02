@@ -53,7 +53,7 @@ class MCTSAgent(BaseAgent):
         # Transposition table: board_hash -> (total_score, visit_count)
         self.transposition_table = {}
     
-    def get_move_sequence(self, game_instance, num_moves, params={}):
+    def get_move_sequence(self, game_instance, num_moves, params={}, token = None):
         temp_game = game_instance.clone()
         move_sequence = []
         
@@ -67,9 +67,14 @@ class MCTSAgent(BaseAgent):
         time_per_move = total_time_budget / num_moves if num_moves > 0 else 1.0
 
         for move_idx in range(num_moves):
+
             if temp_game.over:
                 break
             
+            if token and token.get('cancelled'):
+                print("AI task cancelled by token. Stopping sequence generation.")
+                break 
+
             # Adaptive simulation budget: reduce as game progresses
             base_simulations = params.get('simulations', 500)
             decay_rate = params.get('simulation_decay', 0.3)
