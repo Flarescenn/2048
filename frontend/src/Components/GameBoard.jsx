@@ -155,6 +155,11 @@ const GameBoard = forwardRef(
         setPlaybackIndex(aiMoves.length - 1);
       }
     };
+    const handleSkipToFront = () => {
+      if (aiMoves.length > 0) {
+        setPlaybackIndex(0);
+      }
+    };
     const handleCancelPlayback = () => {
       console.log("Canceling AI playback. Reverting to original board.");
       // Simply exit playback mode. The `displayBoard` will automatically
@@ -717,10 +722,16 @@ const GameBoard = forwardRef(
               </button>
             </div>
             {playbackIndex < aiMoves.length - 1 && (
-              <div className="mt-3">
+              <div className="mt-3 gap-5">
+                <button
+                  onClick={handleSkipToFront}
+                  className="px-4 py-1 bg-slate-600 hover:bg-slate-700 text-white rounded-full text-sm font-semibold transition"
+                >
+                  &laquo; Skip
+                </button>
                 <button
                   onClick={handleSkipToEnd}
-                  className="px-4 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full text-sm font-semibold transition"
+                  className="px-4 py-1 bg-violet-500 hover:bg-violet-600 text-white rounded-full text-sm font-semibold transition ml-2"
                 >
                   Skip &raquo;
                 </button>
@@ -728,6 +739,12 @@ const GameBoard = forwardRef(
             )}
             {playbackIndex === aiMoves.length - 1 && (
               <div className="mt-2 pt-2 border-t border-purple-500/30 flex justify-center gap-2">
+                <button
+                  onClick={handleSkipToFront}
+                  className="px-4 py-1 bg-slate-600 hover:bg-slate-700 text-white rounded-full text-sm font-semibold transition"
+                >
+                  &laquo; Skip
+                </button>
                 <button
                   onClick={handleCancelPlayback}
                   className="px-3 py-1 text-sm rounded-lg font-semibold transition-all duration-300 bg-slate-700/60

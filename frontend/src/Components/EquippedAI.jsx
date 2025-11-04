@@ -77,10 +77,10 @@ export default function EquippedAI({ onOpenDrawer, onStartAI }) {
                                 <input 
                                     type="number"
                                     value={numMoves}
-                                    onChange={(e) => setNumMoves(Math.max(1, Math.min(250, parseInt(e.target.value, 10) || 1)))}
+                                    onChange={(e) => setNumMoves(Math.max(1, Math.min(500, parseInt(e.target.value, 10) || 1)))}
                                     className="w-12 text-base font-bold bg-transparent text-center text-white focus:outline-none focus:text-purple-300 transition-colors"
                                     min="1" 
-                                    max="250"
+                                    max="500"
                                 />
                             </div>
                         </div>
